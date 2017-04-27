@@ -14,7 +14,7 @@ then the user accessthe domain later, the user will get the same service ip.
    original data for skydns, meanwhille skydns-kubeapi offers the resful api for users to maintain domain records.
 * `skydns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on skydns-kubeapi.
 
-##Design Architecture
+## Design Architecture
   ![image](https://github.com/ipdcode/skydns/blob/master/images/skydns_design_architecture.png)
 
 ## Setup / Install
@@ -235,18 +235,18 @@ lock-path = /skydns/monitor/lock
 	we query the domain cctv2.skydns.local form skydns we get the ip 192.168.10.3, then we shut down the servic, we query the domain again
 	we get the ip 192.168.10.1.
 
-##Performance Test
+## Performance Test
 
-###Testing Conditions
-####Physical hardware
+### Testing Conditions
+#### Physical hardware
     NIC: gigabit ethernet card
  	CPUs: 32
 	RAM: 32G
 	OS: CentOS-7.2
-####Testing Software
+#### Testing Software
     queryperf
 
-###Test result
+### Test result
    ![image](https://github.com/ipdcode/skydns/blob/master/images/DNS_performance.png)
 
 ## Future
