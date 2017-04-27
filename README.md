@@ -2,8 +2,7 @@
 ![image](https://github.com/ipdcode/skydns/blob/master/images/skydns.png)
 
 ## Introduction
-*Version 2.1.0*
-SkyDNS is used as internal dns server for k8s cluster. skydns-kubeapi will monitor 
+SkyDNS is used as internal dns server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
 the services in k8s cluster,when the service is created and has been assigend with external ips, 
 the user(docker)in cluster can access the service with the domain.
 When the domain has mutiple ips, the skydns will radom choose one actived for the user, 
