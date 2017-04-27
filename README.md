@@ -1,3 +1,4 @@
+![image](https://github.com/ipdcode/skydns/blob/master/images/skydns.png)
 # SkyDNS
 *Version 2.1.0*
 SkyDNS is used as internal dns server for k8s cluster. skydns-kubeapi will monitor 
