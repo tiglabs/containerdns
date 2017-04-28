@@ -7,7 +7,6 @@ import (
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"time"
-	"strings"
 	"net"
 	"net/http"
 )
@@ -54,6 +53,9 @@ func (etcdcli *EtcdV3) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOpt
 }
 func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
+}
+func keyFound(key string) clientv3.Cmp {
+	return clientv3.Compare(clientv3.ModRevision(key), ">", 0)
 }
 
 func (etcdcli *EtcdV3) InitEtcd(etcdServerList []string, etcdCertfile,etcdKeyFile,etcdCafile string) error {
@@ -125,6 +127,92 @@ func (etcdcli *EtcdV3) Set(key string, val string) error {
 	return nil
 }
 
+// Create implements storage.Interface.Creat
+func (etcdcli *EtcdV3) SetKeys(keys []string, vals []string) error {
+	glog.V(2).Infof("#####set keys=%s vals =%s\n ", keys,vals)
+	if len(keys) != len(vals){
+		return errors.New("not match ")
+	}
+	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
+	defer cancel()
+	opts, err := etcdcli.ttlOpts(ctx, int64(0))
+	if err != nil {
+		return err
+	}
+	var ifOps [] clientv3.Cmp
+	var setOps []  clientv3.Op
+	for idx ,key := range keys{
+		ifOp := notFound(key)
+		setOp := clientv3.OpPut(key, vals[idx], opts...)
+		ifOps = append(ifOps,ifOp)
+		setOps = append(setOps,setOp)
+	}
+	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
+		ifOps...
+	).Then(
+		setOps...
+	).Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return errors.New("key exists")
+	}
+	return nil
+}
+
+// Create implements storage.Interface.Creat
+func (etcdcli *EtcdV3) DeleteKeys(keys []string) error {
+	glog.V(2).Infof("#####DeleteKeys keys=%s \n ", keys)
+	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
+	defer cancel()
+	var ifOps [] clientv3.Cmp
+	var delOps []  clientv3.Op
+	for _ ,key := range keys{
+		ifOp := keyFound(key)
+		delOp := clientv3.OpDelete(key)
+		ifOps = append(ifOps,ifOp)
+		delOps = append(delOps,delOp)
+	}
+	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
+		ifOps...
+	).Then(
+		delOps...
+	).Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return errors.New("key not exists")
+	}
+	return nil
+}
+// Create implements storage.Interface.Creat
+func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld,keyNew,value string) error {
+	glog.V(2).Infof("#####DeleteAndSetKey keyOld=%s  keyNew=%s value =%s\n ", keyOld,keyNew,value )
+	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
+	defer cancel()
+	opts, err := etcdcli.ttlOpts(ctx, int64(0))
+	if err != nil {
+		return err
+	}
+	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
+		keyFound(keyOld),
+		notFound(keyNew),
+	).Then(
+
+		clientv3.OpDelete(keyOld),
+		clientv3.OpPut(keyNew, value, opts...),
+	).Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return errors.New("del or set key err")
+	}
+	return nil
+}
+
 func (etcdcli *EtcdV3) Update(key string, val string) error {
 	glog.V(2).Infof("#####   Update key=%s val =%s\n ", key,val)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
@@ -178,13 +266,9 @@ func (etcdcli *EtcdV3) DoDelete(key string) error {
 }
 
 func (etcdcli *EtcdV3) Delete(res *clientv3.GetResponse) error {
-
+        var keys [] string
 	for _, item := range res.Kvs {
-		err := etcdcli.DoDelete(string(item.Key))
-		if err != nil  && !strings.HasPrefix(err.Error(),"key not found"){
-			glog.Infof("%s\n", err.Error())
-		}
-		time.Sleep(20 * time.Microsecond)
+		keys = append(keys, string(item.Key))
 	}
-	return nil
+	return etcdcli.DeleteKeys(keys)
 }

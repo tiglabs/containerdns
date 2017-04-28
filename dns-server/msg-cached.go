@@ -105,7 +105,7 @@ func (c *Cache) Remove(s string) {
 }
 func (c *Cache) EnsureNoExist(name string, qtype uint16, tcp bool) {
 	h := sha1.New()
-	i := append([]byte(name), packUint16(qtype)...)
+	i := append([]byte(name), keyPack(qtype)...)
 	if tcp {
 		i = append(i, byte(254))
 	}
@@ -121,7 +121,7 @@ func (c *Cache) EnsureNoExist(name string, qtype uint16, tcp bool) {
 // the key in cache is diff from domain
 func (c *Cache) KeyTypeA(name string, dnssec, tcp bool) string {
 	h := sha1.New()
-	i := append([]byte(name), packUint16(dns.TypeA)...)
+	i := append([]byte(name), keyPack(dns.TypeA)...)
 	if dnssec {
 		i = append(i, byte(255))
 	}
@@ -239,7 +239,7 @@ func (c *Cache) DeleteCacheDnsDomain(domain string, tcp bool) bool {
 func (c *Cache) keyExtendTypeA(name string, dnssec, tcp bool) string {
 	h := sha1.New()
 	t := []byte(name) // del skydns test.default.skydns.local.skydns. -->test.default.skydns.local. 6: sizeof(skydns.)
-	i := append(t[:len(t)-6], packUint16(dns.TypeA)...)
+	i := append(t[:len(t)-6], keyPack(dns.TypeA)...)
 	if dnssec {
 		i = append(i, byte(255))
 	}
@@ -709,7 +709,7 @@ func (c *Cache) doSearch(s string, remoteIp string, queryNow time.Time) (*dns.Ms
 
 func CacheKey(q dns.Question, tcp bool) string {
 	h := sha1.New()
-	i := append([]byte(q.Name), packUint16(q.Qtype)...)
+	i := append([]byte(q.Name), keyPack(q.Qtype)...)
 	if tcp {
 		i = append(i, byte(254))
 	}
