@@ -640,10 +640,40 @@ func (c *Cache) doMsgPack(cnameData []dns.RR, ipData []dns.RR, ipIdx int, forwar
 	}
 	return newAnswer, ipIdx
 }
+func (c *Cache) checkIpsStatus(e *cacheElem) ([]dns.RR) {
+	var newAnswer []dns.RR
+	if len(e.msg.Answer) == 1 || e.forwarding{
+		newAnswer = e.msg.Answer[:]
+		return newAnswer
+	}
+	ensureOneIp := false
+	for _, r := range e.msg.Answer {
+		switch r.(type) {
+		case *dns.A:
+			valA := r.(*dns.A)
+			key := valA.A.String()
+			if _, e := c.AvaliableIps[key]; e {
+				ensureOneIp = true
+				newAnswer = append(newAnswer, r)
+			}
+		case *dns.CNAME:
+			newAnswer = append(newAnswer, r)
+		// other type return org val
+		default:
+			newAnswer = e.msg.Answer[:]
+			return newAnswer
+		}
+	}
+	// no active ip, return all
+	if !ensureOneIp {
+		newAnswer = e.msg.Answer[:]
+	}
+	return newAnswer
+}
 
 func (c *Cache) cacheMsgPack(e *cacheElem, msg *dns.Msg, remoteIp string) {
-
 	if !c.pickRandomOne && !c.ipHold {
+		msg.Answer = c.checkIpsStatus(e)
 		return
 	}
 	e.Lock()
