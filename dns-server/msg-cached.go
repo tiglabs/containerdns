@@ -141,15 +141,15 @@ func (c *Cache) syncCmpMsgAnswerSame (vals1 []dns.RR,vals2 []dns.RR)bool{
 		if b{
 			i :=0
 			for _,val2 :=range(vals2){
-				i++
 				valAnswerB, b := val2.(*dns.A)
 				if b{
 					if 0 == bytes.Compare(valAnswerB.A, valAnswerA.A){
 						break
 					}
 				}
+				i++
 			}
-			if i >len(vals2){
+			if i >=len(vals2){
 				return false
 			}
 		}
@@ -158,15 +158,15 @@ func (c *Cache) syncCmpMsgAnswerSame (vals1 []dns.RR,vals2 []dns.RR)bool{
 		if c{
 			i :=0
 			for _,val2 :=range(vals2){
-				i++
 				valAnswerB, b := val2.(*dns.CNAME)
 				if b{
 					if valAnswerB.Target == valAnswerC.Target{
 						break
 					}
 				}
+				i++
 			}
-			if i >len(vals2){
+			if i >=len(vals2){
 				return false
 			}
 		}
@@ -363,6 +363,24 @@ func (c *Cache) updateCachedDataCnameMap(r interface{}) {
 				if _,ok2 := c.elemsMap[key];ok2{
 					delete(c.elemsMap, key)
 				}
+			}
+		}
+	}
+}
+// when the host changed we will del the canme record in query cache
+func (c *Cache) syncUpdateCachedDataCnameMap(host string ) {
+	c.Lock()
+	defer c.Unlock()
+	if e, ok := c.cnameMapTypeA[host]; ok {
+		glog.V(2).Infof("val.Hdr.Name = %s\n",host)
+		if len(e.alians)==0{
+			return
+		}
+		for _,name := range e.alians{
+			key := c.KeyTypeA(name, false, false)
+			glog.V(2).Infof("key = %s name =%s\n",key,name)
+			if _,ok2 := c.elemsMap[key];ok2{
+				delete(c.elemsMap, key)
 			}
 		}
 	}

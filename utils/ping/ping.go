@@ -1,4 +1,4 @@
-package tools
+package ping
 
 import (
 	"bytes"
@@ -114,7 +114,7 @@ func parseICMPEcho(b []byte) (*icmpEcho, error) {
 	return p, nil
 }
 
-func Ping(address string, timeout int) bool {
+func Do(address string, timeout int) bool {
 	err := Pinger(address, timeout)
 	return err == nil
 }

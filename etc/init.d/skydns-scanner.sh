@@ -8,10 +8,10 @@
 
 . /etc/rc.d/init.d/functions
 
-suffix=schedule
+suffix=scanner
 prog=skydns-$suffix
 exec="/usr/bin/skydns-$suffix"
-config="/etc/skydns/schedule.conf"
+config="/etc/skydns/scanner.conf"
 pidfile="/var/run/skydns/skydns-$suffix.pid"
 
 [ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
