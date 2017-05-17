@@ -1,4 +1,4 @@
-package tools
+package etcdv3
 
 import (
 	"errors"
@@ -58,7 +58,7 @@ func keyFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), ">", 0)
 }
 
-func (etcdcli *EtcdV3) InitEtcd(etcdServerList []string, etcdCertfile,etcdKeyFile,etcdCafile string) error {
+func (etcdcli *EtcdV3) InitEtcd(etcdServerList []string, etcdCertfile, etcdKeyFile, etcdCafile string) error {
 
 	tr, err := newHTTPSTransport(etcdCertfile, etcdKeyFile, etcdCafile)
 	if err != nil {
@@ -105,7 +105,7 @@ func (etcdcli *EtcdV3) Get(key string, recursive bool) (*clientv3.GetResponse, e
 
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) Set(key string, val string) error {
-	glog.V(2).Infof("#####set key=%s val =%s\n ", key,val)
+	glog.V(4).Infof("#####set key=%s val =%s\n ", key,val)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 	opts, err := etcdcli.ttlOpts(ctx, int64(0))
@@ -129,7 +129,7 @@ func (etcdcli *EtcdV3) Set(key string, val string) error {
 
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) SetKeys(keys []string, vals []string) error {
-	glog.V(2).Infof("#####set keys=%s vals =%s\n ", keys,vals)
+	glog.V(4).Infof("#####set keys=%s vals =%s\n ", keys,vals)
 	if len(keys) != len(vals){
 		return errors.New("not match ")
 	}
@@ -163,7 +163,7 @@ func (etcdcli *EtcdV3) SetKeys(keys []string, vals []string) error {
 
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) DeleteKeys(keys []string) error {
-	glog.V(2).Infof("#####DeleteKeys keys=%s \n ", keys)
+	glog.V(4).Infof("#####DeleteKeys keys=%s \n ", keys)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 	var ifOps [] clientv3.Cmp
@@ -189,7 +189,7 @@ func (etcdcli *EtcdV3) DeleteKeys(keys []string) error {
 }
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld,keyNew,value string) error {
-	glog.V(2).Infof("#####DeleteAndSetKey keyOld=%s  keyNew=%s value =%s\n ", keyOld,keyNew,value )
+	glog.V(4).Infof("#####DeleteAndSetKey keyOld=%s  keyNew=%s value =%s\n ", keyOld,keyNew,value )
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 	opts, err := etcdcli.ttlOpts(ctx, int64(0))
@@ -213,37 +213,28 @@ func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld,keyNew,value string) error {
 	return nil
 }
 
-func (etcdcli *EtcdV3) Update(key string, val string) error {
-	glog.V(2).Infof("#####   Update key=%s val =%s\n ", key,val)
+func (etcdcli *EtcdV3) Update(key string, val string, valPre string) error {
+	glog.V(4).Infof("#####   Update key=%s val =%s valPre =%s\n ", key,val,valPre)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
-	getResp, err := etcdcli.client.KV.Get(ctx, key)
+
+	opts, err := etcdcli.ttlOpts(ctx, int64(0))
 	if err != nil {
 		return err
 	}
-	for {
-		opts, err := etcdcli.ttlOpts(ctx, int64(0))
-		if err != nil {
-			return err
-		}
 
-		txnResp, err := etcdcli.client.KV.Txn(ctx).If(
-			clientv3.Compare(clientv3.ModRevision(key), "=", getResp.Kvs[0].ModRevision),
-		).Then(
-			clientv3.OpPut(key, val, opts...),
-		).Else(
-			clientv3.OpGet(key),
-		).Commit()
-		if err != nil {
-			return err
-		}
-		if !txnResp.Succeeded {
-			getResp = (*clientv3.GetResponse)(txnResp.Responses[0].GetResponseRange())
-			glog.V(4).Infof("GuaranteedUpdate of %s failed because of a conflict, going to retry", key)
-			continue
-		}
-		return nil
+	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
+		clientv3.Compare(clientv3.Value(key), "=", valPre),
+	).Then(
+		clientv3.OpPut(key, val, opts...),
+	).Commit()
+	if err != nil {
+		return err
 	}
+	if !txnResp.Succeeded {
+		return errors.New("Update error")
+	}
+	return nil
 }
 
 func (etcdcli *EtcdV3) DoDelete(key string) error {
@@ -271,4 +262,8 @@ func (etcdcli *EtcdV3) Delete(res *clientv3.GetResponse) error {
 		keys = append(keys, string(item.Key))
 	}
 	return etcdcli.DeleteKeys(keys)
+}
+
+func (s *EtcdV3)Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
+    return s.client.Watch(ctx, key, opts...)
 }

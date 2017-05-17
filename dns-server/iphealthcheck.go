@@ -14,6 +14,7 @@ import (
 type apiSkydnsIpMonitor struct {
 	Status string   `json:"status,omitempty"`
 	Ports  []string `json:"ports,omitempty"`
+	Domains  []string `json:"domains,omitempty"`
 }
 
 func (s *server) GetSkydnsHostStatus() int64 {
@@ -158,12 +159,12 @@ reWatch:
 	}
 
 	if err := wres.Err(); err != nil {
-		glog.Infof("err =%s\n",err)
+		glog.Infof("WatchForHosts err =%s\n",err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}
 	if err := ctx.Err(); err != nil {
-		glog.Infof("err =%s\n",err)
+		glog.Infof("WatchForHosts err =%s\n",err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}

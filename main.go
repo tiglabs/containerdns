@@ -45,10 +45,10 @@ type EtcdOps struct {
 
 }
 type DnsOps struct {
-	SkydnsDomain      string `gcfg:"dns-domain"`
+	SkydnsDomains      string `gcfg:"dns-domains"`
 	SkydnsAddr        string `gcfg:"dns-addr"`
-	Nameservers       string `gcfg:"nameservers"`
-	SubDomainServers  string `gcfg:"subDomainServers"`
+	Nameservers       string `gcfg:"ex-nameservers"`
+	InDomainServers  string `gcfg:"inDomainServers"`
 	CacheSize         int  `gcfg:"cacheSize"`
 	IpMonitorPath    string `gcfg:"ip-monitor-path"`
 }
@@ -91,8 +91,8 @@ func configSetDefaults(config *ConfigOps)  {
 	if config.Dns.SkydnsAddr == "" {
 		config.Dns.SkydnsAddr = "127.0.0.1:53"
 	}
-	if config.Dns.SkydnsDomain == "" {
-		config.Dns.SkydnsDomain  = "skydns.local."
+	if config.Dns.SkydnsDomains == "" {
+		config.Dns.SkydnsDomains  = "skydns.local."
 	}
 	if config.Dns.IpMonitorPath ==""{
 		config.Dns.IpMonitorPath = "/skydns/monitor/status/"
@@ -101,8 +101,6 @@ func configSetDefaults(config *ConfigOps)  {
 	if config.Dns.CacheSize  < 100000 {
 		config.Dns.CacheSize = 100000
 	}
-
-	config.Dns.SkydnsDomain = dns.Fqdn(strings.ToLower(config.Dns.SkydnsDomain))
 
 	if !strings.HasSuffix(config.Dns.IpMonitorPath, "/") {
 		config.Dns.IpMonitorPath = fmt.Sprintf("%s/", config.Dns.IpMonitorPath)
@@ -199,43 +197,46 @@ func main() {
 
 	configSetDefaults(gConfig)
 
+	var dnsDomains []string
+	if gConfig.Dns.SkydnsDomains != "" {
+		for _, domain := range strings.Split(gConfig.Dns.SkydnsDomains, "%") {
+			domain = dns.Fqdn(strings.ToLower(domain))
+			dnsDomains = append(dnsDomains, domain)
+		}
+	} else {
+		glog.Fatalf("skydns: config domain is nil \n")
+	}
 	var forwardNameServers []string
 	if gConfig.Dns.Nameservers != "" {
-		for _, hostPort := range strings.Split(gConfig.Dns.Nameservers , ",") {
+		for _, hostPort := range strings.Split(gConfig.Dns.Nameservers, ",") {
 			if err := checkHostPort(hostPort); err != nil {
 				glog.Fatalf("skydns: nameserver is invalid: %s", err)
 			}
 			forwardNameServers = append(forwardNameServers, hostPort)
 		}
-	}else{
+	} else {
 		c, err := dns.ClientConfigFromFile("/etc/resolv.conf")
 		if !os.IsNotExist(err) {
 			if err != nil {
 				glog.Fatalf("err = %s\n", err)
 			}
 			for _, s := range c.Servers {
-				forwardNameServers= append(forwardNameServers, net.JoinHostPort(s, c.Port))
+				forwardNameServers = append(forwardNameServers, net.JoinHostPort(s, c.Port))
 			}
 		}
 	}
 
 	subDomainServers := make(map[string][]string)
 
-	if gConfig.Dns.SubDomainServers != "" {
-		for _, item := range strings.Split(gConfig.Dns.SubDomainServers, "#") {
+	if gConfig.Dns.InDomainServers != "" {
+		for _, item := range strings.Split(gConfig.Dns.InDomainServers, "%") {
 			// item :   a.skydns.local->8.8.8.8:53,8.8.4.4:53
 			val := strings.Split(item, "@")
 			if len(val) != 2 {
 				glog.Fatalf("subDomainServers is invalid: %s", item)
 			}
-			if !strings.HasSuffix(val[0], gConfig.Dns.SkydnsDomain) {
-				glog.Fatalf("subDomainServers is invalid: domain:%s  subdomain:%s", gConfig.Dns.SkydnsDomain, val[0])
-			}
-			if len(val[0]) == len(gConfig.Dns.SkydnsDomain) {
-				glog.Fatalf("subDomainServers is invalid: domain:%s == subdomain:%s", gConfig.Dns.SkydnsDomain, val[0])
-			}
 			subDomian := dns.Fqdn(val[0])
-			if subDomian[0] != '.'{
+			if subDomian[0] != '.' {
 				subDomian = "." + subDomian
 			}
 
@@ -257,7 +258,6 @@ func main() {
 		glog.Fatalf("skydns: addr is invalid: %s", err)
 	}
 
-
 	if gConfig.Fun.IpHold && gConfig.Fun.RandomOne {
 		glog.Fatalf("skydns: ipHold and radom-one you must chose one or neither, check config file !! \n")
 	}
@@ -265,17 +265,17 @@ func main() {
 	var ctx = context.TODO()
 	var backend server.Backend
 
-	backend = backendetcdCached.NewBackend(clientv3, ctx, 60 ,3600,10)
+	backend = backendetcdCached.NewBackend(clientv3, ctx, 60, 3600, 10)
 
-
-	s := server.New(backend, gConfig.Dns.SkydnsDomain,gConfig.Dns.SkydnsAddr,gConfig.Dns.IpMonitorPath,forwardNameServers,subDomainServers,gConfig.Dns.CacheSize,gConfig.Fun.RandomOne,gConfig.Fun.IpHold )
-
-	domainWatchIdx := int64(0)
-	domainWatchIdx = s.GetEtcdCachedRecordsAfterStart()
-	glog.Infof("domainWatchIdx =%v  dir =%s \n", domainWatchIdx,server.DnsPath(gConfig.Dns.SkydnsDomain))
-	// watch domains
-	go s.WatchForDnsDomain(domainWatchIdx +1, clientv3)
-
+	s := server.New(backend, dnsDomains, gConfig.Dns.SkydnsAddr, gConfig.Dns.IpMonitorPath, forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold)
+        glog.Infof("dnsDomains = %v\n",dnsDomains)
+	for _, domain := range (dnsDomains) {
+		domainWatchIdx := int64(0)
+		domainWatchIdx = s.GetEtcdCachedRecordsAfterStart(domain)
+		glog.Infof("domainWatchIdx =%v  dir =%s \n", domainWatchIdx, server.DnsPath(domain))
+		// watch domains
+		go s.WatchForDnsDomain(domain,domainWatchIdx + 1, clientv3)
+	}
 	// before server run we get the active ips
 	ipWatchIdx := s.GetSkydnsHostStatus()
 	glog.Infof("ipWatchIdx =%v   dir =%s\n", ipWatchIdx, gConfig.Dns.IpMonitorPath)

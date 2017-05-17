@@ -16,10 +16,10 @@ func (s *server) getRecordCnameMap(records []ServiceRecord) {
 		}
 	}
 }
-func (s *server) GetEtcdCachedRecordsAfterStart() int64 {
+func (s *server) GetEtcdCachedRecordsAfterStart(domain string) int64 {
 	// get records form /skydns/local/skydns/
 	glog.Infof("get etcd revision start \n")
-	records, revision, err := s.backend.Get(s.dnsDomain)
+	records, revision, err := s.backend.Get(domain)
 	if err != nil {
 		if strings.HasPrefix(err.Error(),"context deadline exceeded"){
 			glog.Fatalf("err =%s \n", err.Error())
@@ -27,22 +27,26 @@ func (s *server) GetEtcdCachedRecordsAfterStart() int64 {
 		glog.Infof("err =%s \n", err.Error())
 		return 0
 	}
-	glog.Infof("get etcd revision out \n")
-	recordCaches := make(map[string][]ServiceRecord)
-	recordTime   := make(map[string]time.Time)
+	glog.Infof("get etcd domain =%s  out \n",domain)
+	preLen := len(EtcdRecordCaches)
+	EtcdCachesLock.Lock()
 	timeNow := time.Now().Local()
 	for _, record := range records {
 		switch record.Dnstype {
 		case "SRV":
 			name := s.getSvcDomainName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
-			recordTime[name] = timeNow
+			EtcdRecordCaches[name] = append(EtcdRecordCaches[name], record)
+			EtcdRecordUpdateTime[name] = timeNow
 			glog.V(2).Infof("SRV record.Host: %s\n", record.DnsHost)
 			hostRecord, _, err := s.backend.Get(record.DnsHost)
 			if err == nil {
 				if  len(hostRecord) >0{
-					recordCaches[record.DnsHost] = append(recordCaches[record.DnsHost], hostRecord[0])
-					recordTime[record.DnsHost] = timeNow
+					if len(EtcdRecordCaches[record.DnsHost]) >0 {
+						EtcdRecordCaches[record.DnsHost][0] =  hostRecord[0]
+					}else{
+						EtcdRecordCaches[record.DnsHost] = append(EtcdRecordCaches[record.DnsHost], hostRecord[0])
+					}
+					EtcdRecordUpdateTime[record.DnsHost] = timeNow
 				}
 
 			} else {
@@ -50,21 +54,17 @@ func (s *server) GetEtcdCachedRecordsAfterStart() int64 {
 			}
 		case "CNAME":
 			name := s.getSvcCnameName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
-			recordTime[name] = timeNow
+			EtcdRecordCaches[name] = append(EtcdRecordCaches[name], record)
+			EtcdRecordUpdateTime[name] = timeNow
 			s.doCreateRecordInCacheCname(&record)
 		default:
 			name := s.getSvcDomainName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
-			recordTime[name] = timeNow
+			EtcdRecordCaches[name] = append(EtcdRecordCaches[name], record)
+			EtcdRecordUpdateTime[name] = timeNow
 		}
 	}
-	glog.Infof("len of domain =%d\n", len(recordCaches))
-	EtcdCachesLock.Lock()
-	EtcdRecordCaches = recordCaches
-	EtcdRecordUpdateTime = recordTime
+	glog.Infof("len of domain(%s) =%d\n", domain,len(EtcdRecordCaches)-preLen)
 	EtcdCachesLock.Unlock()
-
 	return revision
 }
 func (s *server) SyncEtcdCachedRecords() {
@@ -91,23 +91,20 @@ func (s *server) syncCmpMsgSame (vals1[]ServiceRecord, vals2 []ServiceRecord)boo
 	for _,val1 := range(vals1){
 		i :=0
 		for _,val2 := range(vals2){
-			i++
 			if val1.Key == val2.Key{
 				if val1.DnsHost == val2.DnsHost{
 					break
 				}
 			}
+			i++
 		}
-		if i >len(vals2){
+		if i >=len(vals2){
 			return false
 		}
 	}
         return true
 }
 func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord,lastUpdateTimeMap map[string]time.Time) {
-	if len(recordCaches)==0 {
-		return
-	}
 	//syc real cache
 	mAnswers := make(map[string][]dns.RR)
 	for key,_ := range recordCaches{
@@ -171,6 +168,7 @@ func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord
 		val,ok := lastUpdateTimeMap[key]
 		if !ok{
 			EtcdRecordCaches[key] = recordCaches[key]
+			s.rcache.syncUpdateCachedDataCnameMap(key)
 			EtcdRecordUpdateTime[key] = timeNow
 			i++
 
@@ -178,6 +176,7 @@ func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord
 			// no change
 			if updateNew.Equal(val){
 				EtcdRecordCaches[key] = recordCaches[key]
+				s.rcache.syncUpdateCachedDataCnameMap(key)
 				EtcdRecordUpdateTime[key] = timeNow
 				i++
 			}
@@ -193,6 +192,7 @@ func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord
 		if val,ok := lastUpdateTimeMap[key]; ok{
 			if updateNew.Equal(val){
 				delete (EtcdRecordCaches,key)
+				s.rcache.syncUpdateCachedDataCnameMap(key)
 				EtcdRecordUpdateTime[key] = timeNow
 				i++
 			}
@@ -214,39 +214,47 @@ func (s *server) syncGetEtcdCachedRecords()(map[string][]ServiceRecord, map[stri
 	// get records form /skydns/local/skydns/
 	recordCaches := make(map[string][]ServiceRecord)
 	recordCnameMapTypeA := make(map[string][]string)
-	records, _, err := s.backend.Get(s.dnsDomain)
-	if err != nil {
-		glog.Infof("err =%s \n", err.Error())
-		return  recordCaches , recordCnameMapTypeA
-	}
-	for _, record := range records {
-		switch record.Dnstype {
-		case "SRV":
-			name := s.getSvcDomainName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
-			hostRecord, _, err := s.backend.Get(record.DnsHost)
-			if err == nil {
-				if  len(hostRecord) >0{
-					recordCaches[record.DnsHost] = append(recordCaches[record.DnsHost], hostRecord[0])
+	for _,domain := range(s.dnsDomains){
+		records, _, err := s.backend.Get(domain)
+		if err != nil {
+			glog.Infof("err =%s \n", err.Error())
+			continue
+		}
+		for _, record := range records {
+			switch record.Dnstype {
+			case "SRV":
+				name := s.getSvcDomainName(record.Key)
+				recordCaches[name] = append(recordCaches[name], record)
+				hostRecord, _, err := s.backend.Get(record.DnsHost)
+				if err == nil {
+					if  len(hostRecord) >0{
+						// just one
+						if len(recordCaches[record.DnsHost]) >0 {
+							recordCaches[record.DnsHost][0] = hostRecord[0]
+						}else{
+							recordCaches[record.DnsHost]= append(recordCaches[record.DnsHost],hostRecord[0])
+						}
+					}
+
+				} else {
+					glog.Infof("err =%s \n", err.Error())
+				}
+			case "CNAME":
+				name := s.getSvcCnameName(record.Key)
+				recordCaches[name] = append(recordCaches[name], record)
+				if ip := net.ParseIP(record.DnsHost); ip == nil{
+					key := dns.Fqdn(record.DnsHost)
+					glog.V(4).Infof("ecord.Host = %s key =%s\n",record.DnsHost, s.getSvcCnameName(record.Key))
+					recordCnameMapTypeA[key] = append(recordCnameMapTypeA[key], s.getSvcCnameName(record.Key))
 				}
 
-			} else {
-				glog.Infof("err =%s \n", err.Error())
+			default:
+				name := s.getSvcDomainName(record.Key)
+				recordCaches[name] = append(recordCaches[name], record)
 			}
-		case "CNAME":
-			name := s.getSvcCnameName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
-			if ip := net.ParseIP(record.DnsHost); ip == nil{
-				key := dns.Fqdn(record.DnsHost)
-				glog.V(2).Infof("ecord.Host = %s key =%s\n",record.DnsHost, s.getSvcCnameName(record.Key))
-				recordCnameMapTypeA[key] = append(recordCnameMapTypeA[key], s.getSvcCnameName(record.Key))
-			}
-
-		default:
-			name := s.getSvcDomainName(record.Key)
-			recordCaches[name] = append(recordCaches[name], record)
 		}
 	}
+
 	return  recordCaches , recordCnameMapTypeA
 }
 
@@ -269,7 +277,11 @@ func (s *server) SetEtcdCachedRecord(kv *mvccpb.KeyValue) {
 		hostRecord, _, err := s.backend.Get(record.DnsHost)
 		if err == nil {
 			if  len(hostRecord) >0{
-				EtcdRecordCaches[record.DnsHost] = append(EtcdRecordCaches[record.DnsHost], hostRecord[0])
+				if len(EtcdRecordCaches[record.DnsHost]) >0 {
+					EtcdRecordCaches[record.DnsHost][0] =  hostRecord[0]
+				}else{
+					EtcdRecordCaches[record.DnsHost] = append(EtcdRecordCaches[record.DnsHost], hostRecord[0])
+				}
 				glog.V(2).Infof("SetEtcdCachedRecord    %v\n", EtcdRecordCaches[record.DnsHost])
 				EtcdRecordUpdateTime[record.DnsHost] = timeNow
 			}
@@ -424,7 +436,11 @@ func (s *server) UpdateEtcdCacheDnsDomain(domain string) bool {
 			hostRecord, _, err := s.backend.Get(record.DnsHost)
 			if err == nil {
 				if len(hostRecord) > 0 {
-					EtcdRecordCaches[record.DnsHost] = append(EtcdRecordCaches[record.DnsHost], hostRecord[0])
+					if len(EtcdRecordCaches[record.DnsHost]) >0 {
+						EtcdRecordCaches[record.DnsHost][0] =  hostRecord[0]
+					}else{
+						EtcdRecordCaches[record.DnsHost] = append(EtcdRecordCaches[record.DnsHost], hostRecord[0])
+					}
 				}
 
 			} else {
