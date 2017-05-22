@@ -45,8 +45,8 @@ type comStats struct {
 	ForwardCount    int64 `json:"forwardCount,omitempty"`
 	CacheMissCount  int64 `json:"cacheMissCount,omitempty"`
 	DataCachedCount int64 `json:"dataCachedCount,omitempty"`
-	CacheSizeUsed   int   `json:"cacheSizeUsed,omitempty"`
-
+	CacheSizeUsed    int   `json:"cacheSizeUsed,omitempty"`
+	DomainSize    int   `json:"domainSize,omitempty"`
 	ErrorCountNoname   int64 `json:"noNameCount,omitempty"`
 	ErrorCountOverflow int64 `json:"overFlowCount,omitempty"`
 	ErrorNoDataCount   int64 `json:"noDataCount,omitempty"`
@@ -102,6 +102,7 @@ func (s *server) statsList(w http.ResponseWriter, r *http.Request) {
 	sta.DataCachedCount = statsRequestCountCached
 	sta.CacheMissCount = statsCacheMissResponse
 	sta.CacheSizeUsed = s.rcache.CacheSizeUsed()
+	sta.DomainSize    = s.GetDomainSize()
 	sta.ErrorCountNoname = statsErrorCountNoname
 	sta.ErrorCountOverflow = statsErrorCountOverflow
 	sta.ErrorNoDataCount = statsNoDataCount
