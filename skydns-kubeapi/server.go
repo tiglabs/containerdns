@@ -1026,11 +1026,15 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 
 	for key, _ := range monitorIps {
 		glog.V(4).Infof("monitorIps key: %s\n", key)
-		if _, e := ipUpdateTime[key]; !e {
-			continue
-		}
-		if checkMonitorIpChanged(key,ipUpdateTime){
-			continue
+		_, e := ipUpdateTime[key]
+		if !e {
+			if _, exists := hostsSkydns[key];exists{
+				continue
+			}
+		}else{
+			if checkMonitorIpChanged(key,ipUpdateTime){
+				continue
+			}
 		}
 		_, exists := hostsSkydns[key]
 		if !exists {

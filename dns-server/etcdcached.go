@@ -16,6 +16,12 @@ func (s *server) getRecordCnameMap(records []ServiceRecord) {
 		}
 	}
 }
+func (s *server) GetDomainSize() int {
+	EtcdCachesLock.Lock()
+	defer EtcdCachesLock.Unlock()
+	return len(EtcdRecordCaches)
+}
+
 func (s *server) GetEtcdCachedRecordsAfterStart(domain string) int64 {
 	// get records form /skydns/local/skydns/
 	glog.Infof("get etcd revision start \n")
