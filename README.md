@@ -17,7 +17,7 @@ then the user accessthe domain later, the user will get the same service ip.
 * `skydns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on skydns-kubeapi.
 
 ## Design Architecture
-  ![image](https://github.com/ipdcode/skydns/blob/master/images/skydns_design_architecture.png)
+  ![image](https://github.com/ipdcode/skydns/blob/master/images/ContainerDNS_design_architecture.png)
 
 ## Setup / Install
 
