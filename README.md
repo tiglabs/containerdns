@@ -2,22 +2,22 @@
 ![image](https://github.com/ipdcode/skydns/blob/master/images/skydns.png)
 
 ## Introduction
-SkyDNS is used as internal dns server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
-the services in k8s cluster,when the service is created and has been assigend with external ips, 
+SkyDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
+the services in k8s cluster,when the service is created and has been assigned with external ips, 
 the user(docker)in cluster can access the service with the domain.
-When the domain has mutiple ips, the skydns will radom choose one actived for the user, 
-it seems like loadbalance.
-Also the skydns offer "session persistence", that means we qury one domain from one user ip,
-then the user accessthe domain later, the user will get the same service ip.   
+When the domain has multiple ips, the skydns will choose one actived for the user randomly, 
+it seems like a load balancer.
+Also the skydns offer "session persistence", that means we query one domain from one user ip,
+then the user access the domain later, the user will get the same service ip.   
 
 ## Components
-* `skydns`: the main service to offer dns query.
+* `skydns`: the main service to offer DNS query.
 * `skydns-kubeapi`: monitor the changes of k8s services, and record the change in the etcd. It offered the
-   original data for skydns, meanwhille skydns-kubeapi offers the resful api for users to maintain domain records.
+   original data for skydns, meanwhille skydns-kubeapi offers the RESTful api for users to maintain domain records.
 * `skydns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on skydns-kubeapi.
 
 ## Design Architecture
-  ![image](https://github.com/ipdcode/skydns/blob/master/images/skydns_design_architecture.png)
+  ![image](https://github.com/ipdcode/skydns/blob/master/images/ContainerDNS_design_architecture.png)
 
 ## Setup / Install
 
@@ -212,7 +212,7 @@ lock-path = /skydns/monitor/lock
 	
 ####  monitor
 	 If the domain may have multiple ips, then dns-scanner is used to monitor the ips behand the domain. 
-	 When the service is not reachable, dns-scanner will change the status of the ip. And the skydns will monitor the ip staus, 
+	 When the service is not reachable, dns-scanner will change the status of the ip. And the skydns will monitor the ip status, 
 	 when it comes down, skydns will choose a good one.
 	 
 	 cctv2.skydns.local    ips[192.168.10.1,192.168.10.2,192.168.10.3]
@@ -234,7 +234,7 @@ lock-path = /skydns/monitor/lock
 	Name:   cctv2.skydns.local
 	Address: 192.168.10.1
 	
-	we query the domain cctv2.skydns.local form skydns we get the ip 192.168.10.3, then we shut down the servic, we query the domain again
+	we query the domain cctv2.skydns.local form skydns we get the ip 192.168.10.3, then we shut down the service, we query the domain again
 	we get the ip 192.168.10.1.
 
 ## Performance Test
