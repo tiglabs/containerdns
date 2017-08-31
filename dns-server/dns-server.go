@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const Version = "2.1.0"
+const Version = "2.1.1"
 const DnsPathPrefix  = "skydns"
 
 var (
@@ -41,13 +41,10 @@ type server struct {
 	dnsAddr           string
 	msgPool         *queue.Queue
 	syncPeriod      time.Duration
+	skipDomain        bool
 
 	forwardNameServers []string
 	subDomainServers  map[string][]string
-/*	nsDomain  string // "ns.dns". + config.Domain
-	mailDomain string // "mail". + config.Domain
-	txtDomain  string // "txt". + config.Domain
-	hostMaster string // "ns.dns". + config.Domain*/
 	minTtl    uint32
 }
 
@@ -78,7 +75,7 @@ func appendDnsDomain(s1, s2 string) string {
 	return s1 + "." + s2
 }
 // New returns a new skydns server.
-func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameServers []string, subDomainServers map[string][]string,cacheSize int ,random,hold bool) *server {
+func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameServers []string, subDomainServers map[string][]string,cacheSize int ,random,hold bool,skip bool) *server {
 	s := new (server)
 	s. backend   =      backend
 	timeOut :=    30 * time.Second
@@ -91,6 +88,7 @@ func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameS
 	s.msgPool.Reset = cacheMsgRest
 	s.syncPeriod = 10 * time.Minute
 	s.minTtl = 60
+	s.skipDomain = skip
 	s.rcache =    NewMsgCache(cacheSize,random, hold,s.minTtl)
 	s.forwardNameServers = forwardNameServers[:]
 	s.subDomainServers = subDomainServers
@@ -119,6 +117,23 @@ func DnsDomain(s string) string {
 	return dns.Fqdn(strings.Join(l[2:len(l)-1], "."))
 }
 
+func (s *server) getSvcDomainSkipName(key string) string {
+	if !s.skipDomain {
+		return key
+	}
+	for _, domain := range(s.dnsDomains){
+		if strings.HasSuffix(key,domain){
+			for i := len(key) - len(domain)-2; i >= 0; i-- {
+				if key[i] == '.' {
+					return key[0:i+1] + domain
+				}
+			}
+
+		}
+	}
+	return key
+}
+
 func (s *server) getSvcDomainName(key string) string {
 	keys := strings.Split(key, "/")
 	domLen := len(keys) - 1
@@ -126,8 +141,8 @@ func (s *server) getSvcDomainName(key string) string {
 		keys[i], keys[j] = keys[j], keys[i]
 	}
 	domainKey := strings.Join(keys[2:], ".") // ingoore the first
-
-	return domainKey[:len(domainKey)-len(DnsPathPrefix)-1]
+	//return domainKey[:len(domainKey)-len(DnsPathPrefix)-1]
+	return s.getSvcDomainSkipName(domainKey[:len(domainKey)-len(DnsPathPrefix)-1])
 
 }
 func (s *server) getSvcCnameName(key string) string {
@@ -138,7 +153,8 @@ func (s *server) getSvcCnameName(key string) string {
 	}
 	domainKey := strings.Join(keys[1:], ".")
 	// ignore the head skydns.
-	return domainKey[:len(domainKey)-len(DnsPathPrefix)-1]
+	return s.getSvcDomainSkipName(domainKey[:len(domainKey)-len(DnsPathPrefix)-1])
+	//return domainKey[:len(domainKey)-len(DnsPathPrefix)-1]
 }
 
 func (s *server) updateRcacheParseRecord(kv *mvccpb.KeyValue) interface{} {
