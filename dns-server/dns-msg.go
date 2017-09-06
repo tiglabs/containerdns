@@ -9,9 +9,10 @@ import (
 )
 
 type ServiceRecord struct {
-	Dnstype string `json:"type,omitempty"`
-	DnsHost        string `json:"host,omitempty"`
-	DnsTtl         uint32 `json:"ttl,omitempty"`
+	Dnstype 	string `json:"type,omitempty"`
+	RecordSource 	string `json:"source,omitempty"`
+	DnsHost       	string `json:"host,omitempty"`
+	DnsTtl         	uint32 `json:"ttl,omitempty"`
 
 	DnsPort        int    `json:"port,omitempty"`
 	DnsPriority    int    `json:"priority,omitempty"`
@@ -19,6 +20,7 @@ type ServiceRecord struct {
 
 	DnsText        string `json:"text,omitempty"`
 	DnsMail        bool   `json:"mail,omitempty"`
+	Cluster        string   `json:"cluster,omitempty"`
 	// Etcd key
 	Key string `json:"-"`
 }

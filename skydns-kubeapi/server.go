@@ -3,6 +3,16 @@
 //Hedes to serve as DNS records.
 package main
 
+/*
+const char* build_time(void)
+{
+    static const char* psz_build_time = "["__DATE__ "  " __TIME__ "]";
+    return psz_build_time;
+
+}
+*/
+import "C"
+
 import (
 	"encoding/json"
 	"flag"
@@ -36,26 +46,29 @@ import (
 const (
 	// Resync period for the kube controller loop.
 	resyncPeriod  = 20 * time.Second
-	syncAllPeriod = 60 * time.Second
 	// A subdomain added to the user specified domain for all services.
 	serviceSubdomain = "svc"
+	podRecordSpec  = "pod"
 
 	argEtcdMutationTimeout = 10 * time.Second
 
 	etcdKeyNotFound      = "key not found"
 	etcdKeyalReadyExists = "key exists"
 
-	SkydnsKubeApiVersion = "1.0"
+	SkydnsKubeApiVersion = "1.3"
 )
 
 var (
 	gConfig        *ConfigOps
 	configFile     = ""
+	gClusterName    = ""
 	version        = false
 	monitorIpPotrs map[string][]string
 
 	monitorIpUpdate map[string]time.Time
 	updateTimeLock sync.Mutex
+
+	syncAllPeriod  time.Duration = 60 * time.Second
 )
 type GeneralOps struct {
 	Host   	      string `gcfg:"host"`
@@ -63,22 +76,24 @@ type GeneralOps struct {
 	EtcdCertfile    string `gcfg:"etcd-certfile"`
 	EtcdKeyfile    string `gcfg:"etcd-keyfile"`
 	EtcdCafile    string `gcfg:"etcd-cafile"`
-
+	SyncTime      uint64  `gcfg:"sync-time"`
 	IpMonitorPath string `gcfg:"ip-monitor-path"`
 	LogDir        string `gcfg:"log-dir"`
 	LogLevel      string `gcfg:"log-level"`
 	LogStdIo      string `gcfg:"log-to-stdio"`
+	ClusterName   string   `gcfg:"cluster-name"`
 }
 type Kube2SkydnsOps struct {
-	KubeDomain  string `gcfg:"kube-domain"`
-	KubeEnable         string   `gcfg:"kube-enable"`
-	KubeConfigFile      string   `gcfg:"kube-config-file"`
+	KubeDomain           string `gcfg:"kube-domain"`
+	PodEnable            bool   `gcfg:"pod-enable"`
+	KubeEnable           bool   `gcfg:"kube-enable"`
+	KubeConfigFile       string   `gcfg:"kube-config-file"`
 }
 type SkydnsApiOps struct {
 	ApiDomains  string `gcfg:"api-domains"`
 	ApiAuth   string `gcfg:"skydns-auth"`
 	ApiAddr   string `gcfg:"api-address"`
-	ApiEnable string `gcfg:"api-enable"`
+	ApiEnable bool `gcfg:"api-enable"`
 }
 
 type ConfigOps struct {
@@ -102,7 +117,7 @@ type kube2skydns struct {
 	// A cache that contains all the services in the system.
 	servicesStore  kcache.Store
 	endpointsStore kcache.Store
-
+	podsStore kcache.Store
 	// Lock for controlling access to headless services.
 	mlock sync.Mutex
 }
@@ -246,7 +261,9 @@ func (ks *kube2skydns) writeIpMonitorRecord(ip string, ports []string,domain str
 			return err
 		}
 		status.Domains = append(status.Domains,domain)
-
+		if len (ports) >0 {
+			status.Ports = append(status.Ports,ports...)
+		}
 		b, err := json.Marshal(status)
 		if err != nil {
 			glog.V(2).Infof(" err =%s  domain =%s\n ",err,domain)
@@ -266,11 +283,12 @@ func (ks *kube2skydns) writeIpMonitorRecord(ip string, ports []string,domain str
 	if strings.HasPrefix(err.Error(), etcdKeyNotFound) {
 		var status apiSkydnsIpMonitor
 		status.Status = "UP"
+		status.Cluster = gClusterName
 		status.Ports = ports[:]
 		status.Domains = append(status.Domains,domain)
-		b, err := json.Marshal(status)
-		if err != nil {
-			return err
+		b, err1 := json.Marshal(status)
+		if err1 != nil {
+			return err1
 		}
 		recordValue := string(b)
 		err = ks.etcdClient.Set(key, recordValue)
@@ -326,7 +344,7 @@ func checkMonitorIpChanged(ip string ,last map[string]time.Time )bool{
 	return true
 }
 
-func getSkydnsMsg(ip string, port int, dnstype string) *skydnsmsg.ServiceRecord {
+func getSkydnsMsg(ip string, port int, dnstype string,source string) *skydnsmsg.ServiceRecord {
 	return &skydnsmsg.ServiceRecord{
 		DnsHost:     ip,
 		DnsPort:     port,
@@ -334,6 +352,8 @@ func getSkydnsMsg(ip string, port int, dnstype string) *skydnsmsg.ServiceRecord 
 		DnsWeight:   10,
 		DnsTtl:      30,
 		Dnstype:  dnstype,
+		RecordSource: source,
+		Cluster:     gClusterName,
 	}
 }
 
@@ -353,7 +373,7 @@ func buildPortSegmentString(portName string, portProtocol kapi.Protocol) string 
 
 func (ks *kube2skydns) generateSRVRecord(subdomain, portSegment, recordName, cName string, portNumber int32) error {
 	recordKey := buildDNSNameString(subdomain, portSegment, recordName)
-	srv_rec, err := json.Marshal(getSkydnsMsg(cName, int(portNumber), "SRV"))
+	srv_rec, err := json.Marshal(getSkydnsMsg(cName, int(portNumber), "SRV",serviceSubdomain))
 	if err != nil {
 		return err
 	}
@@ -366,7 +386,7 @@ func (ks *kube2skydns) generateSRVRecord(subdomain, portSegment, recordName, cNa
 
 func (ks *kube2skydns) generateOneRecordForPortalService(subdomain string, ip string, service *kapi.Service) error {
 
-	b, err := json.Marshal(getSkydnsMsg(ip, 0, "A"))
+	b, err := json.Marshal(getSkydnsMsg(ip, 0, "A",serviceSubdomain))
 	if err != nil {
 		return err
 	}
@@ -510,12 +530,18 @@ func (ks *kube2skydns) generateRecordsForHeadlessService(subdomain string, e *ka
 	for idx := range e.Subsets {
 		for subIdx := range e.Subsets[idx].Addresses {
 			endpointIP := e.Subsets[idx].Addresses[subIdx].IP
-			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A"))
+			podHost := e.Subsets[idx].Addresses[subIdx].Hostname
+			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A",serviceSubdomain))
 			if err != nil {
 				return err
 			}
 			recordValue := string(b)
-			recordLabel := getHash(recordValue)
+			recordLabel := ""
+			if podHost != ""{
+				recordLabel = podHost
+			}else{
+				recordLabel = getHash(recordValue)
+			}
 
 			recordKey := buildDNSNameString(subdomain, recordLabel)
 
@@ -627,7 +653,80 @@ func watchForServices(kubeClient clientset.Interface, ks *kube2skydns) kcache.St
 	go serviceController.Run(wait.NeverStop)
 	return serviceStore
 }
+func (ks *kube2skydns) newPodDomain(obj interface{}) {
+	if p, ok := obj.(*kapi.Pod); ok {
+		if p.Status.PodIP == ""{
+			glog.V(2).Info("ignore the pod for PodIP is nil : %s\n", p.Name)
+			return
+		}
 
+		recordKey := ks.genPodrecordNameExt(p)
+		b, err := json.Marshal(getSkydnsMsg(p.Status.PodIP, 0, "A",podRecordSpec))
+		if err != nil {
+			glog.Infof("newPodDomain Marshal err : %s\n  ", recordKey)
+			return
+		}
+		recordValue := string(b)
+		glog.V(2).Infof("Setting DNS record: %v, with recordKey: %v\n", recordValue, recordKey)
+		if err := ks.writeSkydnsRecord(recordKey, recordValue); err != nil {
+			glog.Infof("newPodDomain writeSkydnsRecord err   : %s\n  ", recordKey)
+			return
+		}
+		ks.writeIpMonitorRecord(p.Status.PodIP,[]string{},ks.genPodrecordName(p))
+	}
+}
+func (ks *kube2skydns) delPodDomain(obj interface{}) {
+	if p, ok := obj.(*kapi.Pod); ok {
+		if p.Status.PodIP == ""{
+			glog.V(2).Info("ignore the pod for PodIP is nil : %s", p.Name)
+			return
+		}
+		recordKey := ks.genPodrecordNameExt(p)
+		glog.V(2).Infof("Remove DNS record: %v\n",  recordKey)
+		if err := ks.removeDNS(recordKey); err != nil {
+			glog.Infof("delPodDomain  err   : %s\n  ", recordKey)
+			return
+		}
+		ks.deleteIpMonitorRecord(p.Status.PodIP,ks.genPodrecordName(p))
+	}
+}
+
+func (ks *kube2skydns) updatePodDomain(oldObj, newObj interface{}) {
+	oldPod, ok1 := oldObj.(*kapi.Pod)
+	newPod, ok2 := newObj.(*kapi.Pod)
+	if ok1 && ok2 {
+		// name or namespace or ip change
+		if  oldPod.Status.PodIP != newPod.Status.PodIP || oldPod.Name != newPod.Name || oldPod.Namespace != newPod.Namespace {
+			glog.V(2).Infof("#####　updatePodDomain  new =%+v  old: =%+v\n", newPod,oldPod)
+			ks.delPodDomain(oldObj)
+			ks.newPodDomain(newObj)
+			return
+		}
+		glog.V(4).Infof("ignore updateService this time \n")
+	}
+}
+
+func watchForPods(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store {
+	podStore, podController := kcache.NewInformer(
+		&kcache.ListWatch{
+			ListFunc: func(options kapi.ListOptions) (k8sruntime.Object, error) {
+				return kubeClient.Core().Pods(kapi.NamespaceAll).List(options)
+			},
+			WatchFunc: func(options kapi.ListOptions) (watch.Interface, error) {
+				return kubeClient.Core().Pods(kapi.NamespaceAll).Watch(options)
+			},
+		},
+		&kapi.Pod{},
+		resyncPeriod,
+		kcache.ResourceEventHandlerFuncs{
+			AddFunc:    ks.newPodDomain,
+			DeleteFunc: ks.delPodDomain,
+			UpdateFunc: ks.updatePodDomain,
+		},
+	)
+	go podController.Run(wait.NeverStop)
+	return podStore
+}
 
 func watchEndpoints(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store {
 	eStore, eController := kcache.NewInformer(
@@ -663,6 +762,11 @@ func getHash(text string) string {
 }
 
 func checkConfigOps() {
+
+	if gConfig.General.SyncTime > 60  {
+		syncAllPeriod = time.Duration(gConfig.General.SyncTime)* time.Second
+	}
+
 	// domain
 	if gConfig.Kube2Skydns.KubeDomain == "" {
 		gConfig.Kube2Skydns.KubeDomain = "skydns.local."
@@ -687,15 +791,14 @@ func checkConfigOps() {
 	}
 
 	// kube
-	if strings.ToUpper(gConfig.Kube2Skydns.KubeEnable) == "YES" {
-		gConfig.Kube2Skydns.KubeEnable = "YES"
+	if gConfig.Kube2Skydns.KubeEnable {
 		if gConfig.Kube2Skydns.KubeConfigFile == ""{
 			glog.Fatal("KubeConfigFile is nil, check config file : ",configFile)
 		}
 	}
 	// api
-	if strings.ToUpper(gConfig.SkydnsApi.ApiEnable) == "YES" {
-		gConfig.SkydnsApi.ApiEnable = "YES"
+	if gConfig.SkydnsApi.ApiEnable {
+
 		if gConfig.SkydnsApi.ApiAddr == "" {
 			glog.Fatal("ApiAddr is nil, check config file : ", configFile)
 		}
@@ -705,7 +808,7 @@ func checkConfigOps() {
 	}
 
 	// nor
-	if gConfig.SkydnsApi.ApiEnable != "YES" && gConfig.Kube2Skydns.KubeEnable != "YES" {
+	if !gConfig.SkydnsApi.ApiEnable  && !gConfig.Kube2Skydns.KubeEnable {
 		glog.Fatal("both kube-enable and api-enable are nil , check config file : ", configFile)
 	}
 }
@@ -728,12 +831,18 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 	for idx := range e.Subsets {
 		for subIdx := range e.Subsets[idx].Addresses {
 			endpointIP := e.Subsets[idx].Addresses[subIdx].IP
-			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A"))
+			podHost := e.Subsets[idx].Addresses[subIdx].Hostname
+			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A",serviceSubdomain))
 			if err != nil {
 				return
 			}
 			recordValue := string(b)
-			recordLabel := getHash(recordValue)
+			recordLabel := ""
+			if podHost != ""{
+				recordLabel = podHost
+			}else{
+				recordLabel = getHash(recordValue)
+			}
 			recordKey := buildDNSNameString(subdomain, recordLabel)
 
 			//svcMap[skydnsmsg.DnsPath(recordKey)] = recordValue
@@ -745,7 +854,7 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 				portSegment := buildPortSegmentString(endpointPort.Name, endpointPort.Protocol)
 				if portSegment != "" {
 					recordKeyReal := buildDNSNameString(subdomain, portSegment, recordLabel)
-					srv_rec, err := json.Marshal(getSkydnsMsg(recordKey, int(endpointPort.Port), "SRV"))
+					srv_rec, err := json.Marshal(getSkydnsMsg(recordKey, int(endpointPort.Port), "SRV",serviceSubdomain))
 					if err != nil {
 						return
 					}
@@ -780,7 +889,7 @@ func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]stri
 				continue
 			}
 			for _, ip := range s.Spec.ExternalIPs {
-				b, err := json.Marshal(getSkydnsMsg(ip, 0, "A"))
+				b, err := json.Marshal(getSkydnsMsg(ip, 0, "A",serviceSubdomain))
 				if err != nil {
 					continue
 				}
@@ -802,6 +911,39 @@ func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]stri
 	return svcMap, srvSvcMap,ipPorts, true
 }
 
+func (ks *kube2skydns) genPodrecordName(s *kapi.Pod) string {
+	return buildDNSNameString(ks.domain,"svc",s.Namespace,s.Name)
+}
+func (ks *kube2skydns) genPodrecordNameExt(s *kapi.Pod) string {
+	return buildDNSNameString(ks.domain,"svc",s.Namespace,s.Name,"ip")
+}
+
+
+func (ks *kube2skydns) getPodsFromKube() (map[string]string, bool) {
+	svcMap := make(map[string]string)
+	services := ks.podsStore.List()
+	if len(services) == 0 {
+		glog.Infof("getServices : list no svcs found\n")
+		return svcMap, false
+	}
+	for _, s := range services {
+		if s, ok := s.(*kapi.Pod); ok {
+			if s.Status.PodIP =="" {
+				continue
+			}
+			recordKey := ks.genPodrecordNameExt(s)
+			b, err := json.Marshal(getSkydnsMsg(s.Status.PodIP, 0, "A",podRecordSpec))
+			if err != nil {
+				glog.Infof("newPodDomain Marshal err : %s\n  ", recordKey)
+				continue
+			}
+			svcMap[skydnsmsg.DnsPath(recordKey)] = string(b)
+		}
+	}
+	return svcMap,true
+}
+
+
 func getSvcDomainName(key string) string {
 	keys := strings.Split(key, "/")
 	domLen := len(keys) - 1
@@ -814,11 +956,17 @@ func getSvcDomainName(key string) string {
 
 }
 
-func (ks *kube2skydns) kubeLoopNodes(kv []*mvccpb.KeyValue, sx map[string]string, hosts map[string][]string) error {
+func (ks *kube2skydns) kubeLoopNodes(choose string,kv []*mvccpb.KeyValue, sx map[string]string, hosts map[string][]string) error {
 	var record apiSkydnsRecord
 	for _, item := range kv {
 		if err := json.Unmarshal([]byte(item.Value), &record); err != nil {
 			return err
+		}
+		if choose != "" && record.RecordSource != choose {
+			continue
+		}
+		if record.Cluster != gClusterName{
+			continue
 		}
 		key := string(item.Key)
 		val := string(item.Value)
@@ -835,7 +983,7 @@ func (ks *kube2skydns) kubeLoopNodes(kv []*mvccpb.KeyValue, sx map[string]string
 	}
 	return nil
 }
-func (ks *kube2skydns) getServicesFromSkydns(name string, sx map[string]string, hosts map[string][]string) error {
+func (ks *kube2skydns) getServicesFromSkydns(name string,choose string, sx map[string]string, hosts map[string][]string) error {
 	subdomain := buildDNSNameString(name)
 
 	r, err := ks.etcdClient.Get(skydnsmsg.DnsPath(subdomain), true)
@@ -843,7 +991,7 @@ func (ks *kube2skydns) getServicesFromSkydns(name string, sx map[string]string, 
 		return err
 	}
 
-	return ks.kubeLoopNodes(r.Kvs, sx, hosts)
+	return ks.kubeLoopNodes(choose,r.Kvs, sx, hosts)
 
 }
 
@@ -858,7 +1006,7 @@ func (ks *kube2skydns) syncKube2Skydns() {
 	svcSkydns := make(map[string]string)
 	hostSkydns := make(map[string][]string)
 	// just get svc.
-	err := ks.getServicesFromSkydns(serviceSubdomain + "." + gConfig.Kube2Skydns.KubeDomain, svcSkydns, hostSkydns)
+	err := ks.getServicesFromSkydns(serviceSubdomain + "." + gConfig.Kube2Skydns.KubeDomain,serviceSubdomain, svcSkydns, hostSkydns)
 	if err != nil {
 		retStr := err.Error()
 		// if key not fond, keep going
@@ -907,6 +1055,56 @@ func (ks *kube2skydns) syncKube2Skydns() {
 		}
 	}
 }
+
+
+func (ks *kube2skydns) syncPod2Skydns() {
+	glog.V(2).Info("Begin syncKube2Skydns...")
+	var kubePods map[string]string
+	var ok bool
+	kubePods, ok = ks.getPodsFromKube()
+	if ok != true {
+		return
+	}
+	svcSkydns := make(map[string]string)
+	hostSkydns := make(map[string][]string)
+	// just get svc.
+	err := ks.getServicesFromSkydns(serviceSubdomain + "." + gConfig.Kube2Skydns.KubeDomain, podRecordSpec, svcSkydns, hostSkydns)
+	if err != nil {
+		retStr := err.Error()
+		// if key not fond, keep going
+		if !strings.HasPrefix(retStr, etcdKeyNotFound) {
+			glog.Infof("Err: %s\n", err.Error())
+			return
+		}
+	}
+	// srvSvcMap must be set before srv record for all skydns-allcached
+	for key, val := range kubePods {
+		glog.V(3).Infof("pod in Kube:: key :%s  val =%s\n", key, val)
+		valSkydns, exists := svcSkydns[key]
+		if exists {
+			if strings.Compare(valSkydns, val) != 0 {
+				glog.V(3).Infof("key =%s  kubeval =%s skydnsVal =%s\n", key, val, valSkydns)
+				ks.etcdClient.Update(key, val,valSkydns)
+			}
+			continue
+		}
+		//we add new one
+		ks.etcdClient.Set(key, val)
+	}
+
+	// Remove services missing from the update.
+	for name, valSkydns := range svcSkydns {
+		glog.V(3).Infof("svc in Skydns:: key :%s  val =%s\n", name, valSkydns)
+		_, exists := kubePods[name]
+		if !exists {
+			glog.V(3).Infof("del from skydns key :%s  val =%s\n", name, valSkydns)
+			ks.etcdClient.DoDelete(name)
+		}
+	}
+}
+
+
+
 func checkDomainsSame(domains1,domains2 [] string)bool{
 	if len(domains1) != len(domains2){
 		return false
@@ -936,7 +1134,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 	ipUpdateTime := getMonitorIpUpdateTimes()
 
 	for _,domain := range(hostDomins){
-		err := ks.getServicesFromSkydns(domain, svcSkydns, hostsSkydns)
+		err := ks.getServicesFromSkydns(domain,"", svcSkydns, hostsSkydns)
 		if err != nil {
 			retStr := err.Error()
 			// if key not fond, keep going
@@ -966,6 +1164,9 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 			if err := json.Unmarshal([]byte(item.Value), status); err != nil {
 				continue
 			}
+			if status.Cluster != gClusterName{
+				continue
+			}
 			monitorIps[ip] = status
 		}
 	}
@@ -982,6 +1183,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 		if !exists {
 			var status apiSkydnsIpMonitor
 			status.Status = "UP"
+			status.Cluster = gClusterName
 			status.Domains = domains[:]
 			// check ports
 			_, exists = monitorIpPotrs[key]
@@ -1003,6 +1205,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 			if ! checkDomainsSame(domains, monitorIps[key].Domains){
 				var status apiSkydnsIpMonitor
 				status.Status = monitorIps[key].Status
+				status.Cluster = gClusterName
 				status.Ports = monitorIps[key].Ports
 				status.Domains = domains[:]
 				b, err := json.Marshal(status)
@@ -1045,6 +1248,13 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 		}
 	}
 
+	for key, val := range ipUpdateTime {
+		_, exists := monitorIps[key]
+		if !exists {
+			delMonitorIpUpdateTime(key,val)
+		}
+	}
+
 }
 func (ks *kube2skydns) svcSyncLoop(period time.Duration) {
 	for range time.Tick(period) {
@@ -1059,7 +1269,12 @@ func (ks *kube2skydns) hostSyncLoop(domains []string,period time.Duration) {
 		ks.syncSkydnsHostStatus(domains)
 	}
 }
-
+func (ks *kube2skydns) podSyncLoop(period time.Duration) {
+	for range time.Tick(period) {
+		glog.Infof("svcSyncLoop \n")
+		ks.syncPod2Skydns()
+	}
+}
 func init() {
 	flag.StringVar(&configFile, "config-file", "/etc/skydns/skydns-api.conf", "read config from the file")
 	flag.BoolVar(&version, "version", false, "Print version information and quit")
@@ -1072,6 +1287,7 @@ func init() {
 	flag.Lookup("log_dir").Value.Set(gConfig.General.LogDir)
 	flag.Lookup("v").Value.Set(gConfig.General.LogLevel)
 	flag.Lookup("logtostderr").Value.Set(gConfig.General.LogStdIo)
+	gClusterName = gConfig.General.ClusterName
 
 }
 
@@ -1084,14 +1300,14 @@ type kubeApiReg struct {
 }
 func kubeapiRegister(client *etcdv3.EtcdV3){
 	var data kubeApiReg
-	data.Version = SkydnsKubeApiVersion
+	data.Version = SkydnsKubeApiVersion + ": " + C.GoString(C.build_time())
 	data.MonitorPath = gConfig.General.IpMonitorPath
 
-	if  gConfig.Kube2Skydns.KubeEnable == "YES"{
+	if  gConfig.Kube2Skydns.KubeEnable {
 		data.K8sDomain = dns.Fqdn(strings.ToLower(gConfig.Kube2Skydns.KubeDomain))
 
 	}
-	if  gConfig.SkydnsApi.ApiEnable == "YES"{
+	if  gConfig.SkydnsApi.ApiEnable {
 		for _, domain := range strings.Split(gConfig.SkydnsApi.ApiDomains, "%") {
 			domain = dns.Fqdn(strings.ToLower(domain))
 			data.ApiDomains = append(data.ApiDomains, domain)
@@ -1125,7 +1341,7 @@ func kubeapiRegister(client *etcdv3.EtcdV3){
 
 func main() {
 	if version {
-		fmt.Printf("%s\n", SkydnsKubeApiVersion)
+		fmt.Printf("%s\n", SkydnsKubeApiVersion+ ": " + C.GoString(C.build_time()))
 		return
 	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -1143,24 +1359,30 @@ func main() {
 
 	ks.etcdClient = newEtcdClient(gConfig.General.EtcdServer,gConfig.General.EtcdCertfile,gConfig.General.EtcdKeyfile,gConfig.General.EtcdCafile)
 
-	if gConfig.Kube2Skydns.KubeEnable == "YES" {
+	if gConfig.Kube2Skydns.KubeEnable  {
 		glog.Infof("kubernetes serverce to dns enable ")
 		kubeClient, err := newKubeClient()
 		if err != nil {
 			glog.Fatalf("Failed to create a kubernetes client: %v", err)
 		}
 		ks.servicesStore = watchForServices(kubeClient, &ks)
+		time.Sleep(5*time.Second)
 		ks.endpointsStore = watchEndpoints(kubeClient, &ks)
-
+		if gConfig.Kube2Skydns.PodEnable{
+			ks.podsStore = watchForPods(kubeClient, &ks)
+		}
 		go ks.svcSyncLoop(syncAllPeriod)
+		if gConfig.Kube2Skydns.PodEnable{
+			go ks.podSyncLoop(syncAllPeriod)
+		}
 	}
 	var domains []string
 	doMap := make(map[string]bool)
-	if  gConfig.Kube2Skydns.KubeEnable == "YES"{
+	if  gConfig.Kube2Skydns.KubeEnable{
 		domain := dns.Fqdn(strings.ToLower(gConfig.Kube2Skydns.KubeDomain))
 		doMap[domain] = true
 	}
-	if  gConfig.SkydnsApi.ApiEnable == "YES"{
+	if  gConfig.SkydnsApi.ApiEnable {
 		for _, domain := range strings.Split(gConfig.SkydnsApi.ApiDomains, "%") {
 			domain = dns.Fqdn(strings.ToLower(domain))
 			doMap[domain] = true
@@ -1169,7 +1391,7 @@ func main() {
 	for key,_:= range(doMap){
 		domains = append(domains,key)
 	}
-	if gConfig.SkydnsApi.ApiEnable == "YES" {
+	if gConfig.SkydnsApi.ApiEnable {
 		glog.Infof("hedes  dns api enable ")
 		RunApi(ks.etcdClient, gConfig.SkydnsApi.ApiAddr, domains, gConfig.SkydnsApi.ApiAuth, gConfig.General.IpMonitorPath)
 	}

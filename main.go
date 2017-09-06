@@ -2,6 +2,17 @@
 
 package main
 
+/*
+const char* build_time(void)
+{
+    static const char* psz_build_time = "["__DATE__ "  " __TIME__ "]";
+    return psz_build_time;
+
+}
+*/
+import "C"
+
+
 import (
 	"flag"
 	"fmt"
@@ -51,6 +62,7 @@ type DnsOps struct {
 	InDomainServers  string `gcfg:"inDomainServers"`
 	CacheSize         int  `gcfg:"cacheSize"`
 	IpMonitorPath    string `gcfg:"ip-monitor-path"`
+	SkipDomain      bool `gcfg:"skipDomain"`
 }
 type  FunFeature struct {
 	RandomOne   bool `gcfg:"random-one"`
@@ -180,7 +192,8 @@ func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 func main() {
 	flag.Parse()
 	if version {
-		fmt.Printf("%s\n", server.Version)
+		s := server.Version + ": "+ C.GoString(C.build_time())
+		fmt.Printf("%s\n", s)
 		return
 	}
 	go glogFlush(glogFlushPeriod)
@@ -267,7 +280,8 @@ func main() {
 
 	backend = backendetcdCached.NewBackend(clientv3, ctx, 60, 3600, 10)
 
-	s := server.New(backend, dnsDomains, gConfig.Dns.SkydnsAddr, gConfig.Dns.IpMonitorPath, forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold)
+	s := server.New(backend, dnsDomains, gConfig.Dns.SkydnsAddr, gConfig.Dns.IpMonitorPath,
+		forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold,gConfig.Dns.SkipDomain)
         glog.Infof("dnsDomains = %v\n",dnsDomains)
 	for _, domain := range (dnsDomains) {
 		domainWatchIdx := int64(0)
