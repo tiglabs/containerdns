@@ -399,23 +399,26 @@ func (s *server) checkAndWtiteMsg(w dns.ResponseWriter, req *dns.Msg,m *dns.Msg,
 
 
 func (s *server) RoundRobinRecords(answers []dns.RR) {
-	if len(answers) ==1{
+	if len(answers) == 1 {
 		return
 	}
-	if len(answers) ==2{
+	if len(answers) == 2 {
+		if answers[0].Header().Rrtype == dns.TypeCNAME{
+			return
+		}
 		swapIdx := int(dns.Id()) % 2
-		if swapIdx ==1{
+		if swapIdx == 1 {
 			answers[0], answers[1] = answers[1], answers[0]
 		}
 		return
 	}
 	maxLen := len(answers)
-	for idx := 0; idx < maxLen ; idx++ {
+	for idx := 0; idx < maxLen; idx++ {
 		swapIdx := int(dns.Id()) % maxLen
-		if swapIdx == idx {
+		if  answers[idx].Header().Rrtype != dns.TypeA || answers[swapIdx].Header().Rrtype != dns.TypeA || swapIdx == idx {
 			continue
 		}
-		answers[idx], answers[swapIdx] = answers[swapIdx],answers[idx]
+		answers[idx], answers[swapIdx] = answers[swapIdx], answers[idx]
 	}
 }
 
@@ -444,7 +447,7 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 
 	defer func() {
 		s.checkAndWtiteMsg(w,req,m,tcp,false)
-		if q.Qtype == dns.TypeA && !tcp{
+		if q.Qtype == dns.TypeA && !tcp || (q.Qtype == dns.TypeAAAA && !tcp){
 			//when insert we could not chage the EtcdCaches with the EtcdCachesLock
 			EtcdCachesLock.RLock()
 			updateTimeNow := s.GetEtcdRecordLastUpdateTime(name)
