@@ -171,8 +171,9 @@ func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord
         for key,_ := range(cacheL1Need2Update){
 
 		updateNew := s.GetEtcdRecordLastUpdateTime(key)
-		val,ok := lastUpdateTimeMap[key]
-		if !ok{
+		val, ok := lastUpdateTimeMap[key]
+		// no new ,no old
+		if !ok && updateNew.Equal(time.Time{}){
 			EtcdRecordCaches[key] = recordCaches[key]
 			s.rcache.syncUpdateCachedDataCnameMap(key)
 			EtcdRecordUpdateTime[key] = timeNow

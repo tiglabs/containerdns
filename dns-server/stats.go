@@ -13,7 +13,9 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sort"
 	"time"
+	"strconv"
 )
 
 var (
@@ -257,6 +259,7 @@ func (s *server) Statistics(stAddr string, auth string) {
 	}
 	r := mux.NewRouter()
 	r.HandleFunc("/skydns/stats", s.statsList).Methods("GET")
+	r.HandleFunc("/skydns/stats/top/{topN}", s.statsTopN).Methods("GET")
 	r.HandleFunc("/skydns/stats/{domain}", s.statsShowCache).Methods("GET")
 
 	r.HandleFunc("/skydns/domain/{domain}", s.domainShowCache).Methods("GET")
@@ -271,9 +274,69 @@ func (s *server) Statistics(stAddr string, auth string) {
 
 	http.HandleFunc("/", basicAuth(r))
 	glog.Infof("statistics enabled on :%s", stAddr)
+	go s.nTop( 30*time.Second)
 	err = http.ListenAndServe(stAddr, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to start API service:%s", err))
 	}
 
+}
+/////////////////////////////////top 100 //////////////////
+
+type DomainTop struct {
+	RequestCount  int64     `json:"reqCount,omitempty"`
+	Domain        string     `json:"domain,omitempty"`
+}
+
+type DomainList []*DomainTop
+
+func (s DomainList) Len() int { return len(s) }
+func (s DomainList) Swap(i, j int){ s[i], s[j] = s[j], s[i] }
+func (s DomainList) Less(i, j int) bool { return s[i].RequestCount > s[j].RequestCount }  // reverse
+
+var top1000 DomainList
+var topN    int  = 0
+
+func (s *server) nTop(period time.Duration) {
+	for range time.Tick(period) {
+		s.genTop100()
+	}
+}
+func (s *server) genTop100() {
+	srcData := s.rcache.GetAllDomianStats()
+	if len(srcData) == 0{
+		glog.Infof("no damain query\n")
+		return
+	}
+	sort.Sort(srcData)
+	if len(srcData) > 1000{
+		top1000 = srcData[:1000]
+	}else{
+		top1000 = srcData[:]
+	}
+
+}
+func (s *server) statsTopN(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	num ,err := strconv.Atoi(vars["topN"])
+	if err != nil{
+		fmt.Fprintf(w, "%s\n", err.Error())
+		return
+	}
+	var topn DomainList
+	if num > 1000{
+		num = 1000
+	}
+	if len(top1000) > num {
+		topn = top1000[:num]
+	}else{
+		topn = top1000[:]
+	}
+
+	b, err := json.Marshal(topn)
+	if err != nil {
+		fmt.Fprintf(w, "%s\n", err.Error())
+		return
+	}
+	fmt.Fprintf(w, "%s\n", string(b))
 }

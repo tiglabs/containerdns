@@ -211,6 +211,23 @@ func (c *Cache) ShowCacheStats(domain string, tcp bool) (int64, time.Time,time.T
 		return 0, time.Time{},time.Time{}
 	}
 }
+
+
+func (c *Cache) GetAllDomianStats()DomainList{
+	var datas DomainList
+	c.RLock()
+	defer c.RUnlock()
+	for _,v := range c.elemsMap{
+		if len (v.msg.Question)>0{
+			da := new(DomainTop)
+			da.RequestCount = v.requestCount
+			da.Domain   = v.msg.Question[0].Name
+			datas = append(datas,da)
+		}
+	}
+	return datas
+}
+
 func (c *Cache) ShowCacheDnsDomain(domain string, tcp bool) *dns.Msg {
 	//udp
 	c.Lock()
