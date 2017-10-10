@@ -33,7 +33,7 @@ const (
 	noFindDomainName       = "ERR, no find  domain name "
 	noFindDomainIp         = "ERR, no find  domain ip "
 	errDeleteDomainName    = "ERR, delete domain name error"
-	errDeleteK8sSvc        = "ERR, can not del k8s svc "
+	errK8sSvc              = "ERR, can not ops k8s svc "
 	errSetDomainName       = "ERR, set domain name error "
 	errSetDomainNameExists = "ERR, set domain name error  domain exists "
 	errPutTooManyItems     = "ERR, put just support  one update one time"
@@ -222,18 +222,22 @@ func (a *skydnsApi) setSkydnsRecordText(name string, user string, text string, d
 	}
 }
 
-
-func (a *skydnsApi)checkDomainUserInfoOk(res *clientv3.GetResponse ,user string) bool{
+func (a *skydnsApi) checkDomainUserInfoOk(res *clientv3.GetResponse, user,domain string) bool {
 	var record apiSkydnsRecord
+	name := ""
 	for _, item := range res.Kvs {
 		if err := json.Unmarshal([]byte(item.Value), &record); err != nil {
 			return false
 		}
-		if user != record.User {
+		switch record.Dnstype{
+		case "A","SRV": name = a.getDomainNameFromKeyA(string(item.Key))
+		default :       name = a.getDomainNameFromKey(string(item.Key))
+		}
+		if name == domain && user != record.User {
 			return false
 		}
 	}
-        return true
+	return true
 }
 func (a *skydnsApi) deleteSkydnsRecord(name ,user string) string {
 	res, err := a.etcdClient.Get(skydnsmsg.DnsPath(name), true)
@@ -246,7 +250,7 @@ func (a *skydnsApi) deleteSkydnsRecord(name ,user string) string {
 		}
 	}
 	glog.V(2).Infof("deleteSkydnsRecord :%s", skydnsmsg.DnsPath(name))
-        if !a.checkDomainUserInfoOk(res, user){
+        if !a.checkDomainUserInfoOk(res, user,name){
 		return userNameNotMatch
 	}
 	err = a.etcdClient.Delete(res)
@@ -463,7 +467,7 @@ func (a *skydnsApi) getDomainNameFromKey(key string) string {
 		keys[i], keys[j] = keys[j], keys[i]
 	}
 	domainKey := strings.Join(keys[1:domLen-1], ".")
-	return domainKey
+	return dns.Fqdn(domainKey)
 }
 
 func (a *skydnsApi) getDomainNameFromKeyA(key string) string {
@@ -473,7 +477,7 @@ func (a *skydnsApi) getDomainNameFromKeyA(key string) string {
 		keys[i], keys[j] = keys[j], keys[i]
 	}
 	domainKey := strings.Join(keys[2:domLen-1], ".") // ingoore the first
-	return domainKey
+	return dns.Fqdn(domainKey)
 }
 
 func (a *skydnsApi) doGetSkydnsRecords(n ,user string, sx map[string]apiService) error {
@@ -593,37 +597,9 @@ func (a *skydnsApi) processTypeSRVPost(s *apiService, domain ,user string) strin
 	return apiSucess
 }
 
-func (a *skydnsApi) processTypeADelete(s *apiService, domain ,user string) string {
-
+func (a *skydnsApi) doProcessTypeADelete(s *apiService, domain, user string) string{
 	name := ""
-	ret := ""
-	// no ips del all
-	if len(s.DomainIps) == 0 {
-		svc := make(map[string]apiService)
-		err := a.getSkydnsRecords(domain, user,"A", svc)
-		ret = a.deleteSkydnsRecord(domain,user)
-		if err == nil && ret == apiSucess{
-			for _,v := range svc{
-				for _,ip := range v.DomainIps{
-					a.deleteIpMonitorRecord(ip,domain)
-				}
-			}
-		}
-		return ret
-	}
-	res, err := a.etcdClient.Get(skydnsmsg.DnsPath(domain), true)
-	if err != nil {
-		glog.Infof("domain :%s   %s\n",skydnsmsg.DnsPath(name), err.Error())
-		if isEtcdNameNotFound(err){
-			return noFindDomainName
-		}else{
-			return errDeleteDomainName
-		}
-	}
-	if !a.checkDomainUserInfoOk(res, user){
-		return userNameNotMatch
-	}
-        var keys [] string
+	var keys []string
 	for _, ipaddr := range s.DomainIps {
 		ip := net.ParseIP(ipaddr)
 		switch {
@@ -636,22 +612,65 @@ func (a *skydnsApi) processTypeADelete(s *apiService, domain ,user string) strin
 			return notSupportIpv6
 		}
 	}
-	err = a.etcdClient.DeleteKeys(keys)
-	if err != nil{
-		glog.Infof("%s  ## domain =%s\n", err.Error(),domain)
+	err := a.etcdClient.DeleteKeys(keys)
+	if err != nil {
+		glog.Infof("%s  ## domain =%s\n", err.Error(), domain)
 		return errDeleteDomainName
 	}
 	for _, ipaddr := range s.DomainIps {
-		a.deleteIpMonitorRecord(ipaddr,domain)
+		a.deleteIpMonitorRecord(ipaddr, domain)
+	}
+	return apiSucess
+}
+
+func (a *skydnsApi) processTypeADelete(s *apiService, domain, user string) string {
+	// no ips del all
+	var DomainIpsOps     []string
+	if len(s.DomainIps) == 0  || s.OpsType == ""{
+		svc := make(map[string]apiService)
+		err := a.getSkydnsRecords(domain, user, "A", svc)
+		if err != nil {
+			glog.V(2).Infof("processTypeADelete :%s\n",  err.Error())
+			return  err.Error()
+		}
+		if value, ok :=  svc[domain]; ok {
+			if value.User != user{
+				glog.V(2).Infof("processTypeADelete %s :%s\n", domain,userNameNotMatch)
+				return userNameNotMatch
+			}
+			DomainIpsOps  = value.DomainIps[:]
+		}else{
+			glog.V(2).Infof("processTypeADelete %s :%s\n", domain, noFindDomainName)
+			return noFindDomainName
+		}
+
+	}else{
+		res, err := a.etcdClient.Get(skydnsmsg.DnsPath(domain), true)
+		if err != nil {
+			glog.Infof("domain :%s   %s\n", domain, err.Error())
+			if isEtcdNameNotFound(err) {
+				return noFindDomainName
+			} else {
+				return errDeleteDomainName
+			}
+		}
+		if !a.checkDomainUserInfoOk(res, user,domain) {
+			return userNameNotMatch
+		}
+		DomainIpsOps  = s.DomainIps[:]
 	}
 
-	svc := make(map[string]apiService)
-	err = a.getSkydnsRecords(domain,user, "A", svc)
-	if len(svc) == 0 && err == nil {
-		err = a.etcdClient.DoDelete(skydnsmsg.DnsPath(domain))
-		if err != nil {
-			glog.Infof(" %s  domain =%s \n", err.Error(),domain)
-			return errDeleteDomainName
+	// the max is 128 by etcd, so we use for
+	for i:=0; i < len(DomainIpsOps); {
+		seg := 100
+		if i+ 100 > len(DomainIpsOps){
+			seg = 	len(DomainIpsOps) - i
+		}
+		s.DomainIps = DomainIpsOps[i:seg+i]
+		i = i + seg
+		ret := a.doProcessTypeADelete(s,domain,user)
+		if ret != apiSucess{
+			return ret
 		}
 	}
 	return apiSucess
@@ -671,7 +690,7 @@ func (a *skydnsApi) processTypeAPut(s *apiService, domain string, user string) s
 			return errUpdateDomainName
 		}
 	}
-	if !a.checkDomainUserInfoOk(res, user){
+	if !a.checkDomainUserInfoOk(res, user,domain){
 		return userNameNotMatch
 	}
 
@@ -765,15 +784,22 @@ func (a *skydnsApi) checkKeyEtcdExist(name string) bool {
 	return false
 }
 
-func (a *skydnsApi) checkPostExist(name string) bool {
-	if a.checkK8sSvcDir(name) {
-		return true
+func (a *skydnsApi) checkPostExist(domain,user string) string {
+	if a.checkK8sSvcDir(domain) {
+		return errK8sSvc
 	}
-/*	_, err := a.etcdClient.Get(skydnsmsg.DnsPath(name), true)
-	if err == nil {
-		return true
-	}*/
-	return false
+	res, err := a.etcdClient.Get(skydnsmsg.DnsPath(domain), true)
+	if err != nil {
+		if isEtcdNameNotFound(err) {
+			return apiSucess
+		} else {
+			return err.Error()
+		}
+	}
+	if a.checkDomainUserInfoOk(res,user,domain){
+		return apiSucess
+	}
+	return  userNameNotMatch
 }
 
 func (a *skydnsApi) checkK8sSvcDir(domain string) bool {
@@ -809,31 +835,19 @@ func (a *skydnsApi) processDelete(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s\n", notSubDomain)
 		return
 	}
+        glog.V(2).Infof("processDelete domain=%s user =%s body %v\n", domain,user,s)
 
 	a.processLock(domain)
 	defer a.processUnlock(domain)
 
 	if a.checkK8sSvcDir(domain) {
-		fmt.Fprintf(w, "%s\n", errDeleteK8sSvc)
+		fmt.Fprintf(w, "%s\n", errK8sSvc)
 		return
 	}
 	ret := ""
 	if s.OpsType == "" {
-		svc := make(map[string]apiService)
-		err := a.getSkydnsRecords(domain,user, "A", svc)
-		ret = a.deleteSkydnsRecord(domain,user)
+		ret = a.processTypeADelete(&s, domain, user)
 		fmt.Fprintf(w, "%s\n", ret)
-		// del ip infos
-		if err == nil && ret == apiSucess{
-			for _,v := range svc{
-				for _,ip := range v.DomainIps{
-					glog.V(2).Infof("del ip =%s domina =%s\n",ip,domain)
-					a.deleteIpMonitorRecord(ip,domain)
-				}
-			}
-		}else{
-			glog.Infof("err =%s  domain =%s \n",err,domain)
-		}
 		return
 	}
 	switch strings.ToUpper(s.OpsType) {
@@ -877,6 +891,8 @@ func (a *skydnsApi) processPost(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s\n", notSubDomain)
 		return
 	}
+	glog.V(2).Infof("processPost domain=%s user =%s body %v\n", domain,user,s)
+
 	a.processLock(domain)
 	defer a.processUnlock(domain)
 
@@ -889,14 +905,16 @@ func (a *skydnsApi) processPost(w http.ResponseWriter, r *http.Request) {
 	switch strings.ToUpper(s.OpsType) {
 	case "SRV":
 		// check exitst
-		if a.checkPostExist(domain) {
-			fmt.Fprintf(w, "%s\n", errSetDomainNameExists)
+		ret = a.checkPostExist(domain,user)
+		if apiSucess != ret {
+			fmt.Fprintf(w, "%s\n", ret)
 			return
 		}
 		ret = a.processTypeSRVPost(&s, domain,user)
 	case "A":
-		if a.checkPostExist(domain) {
-			fmt.Fprintf(w, "%s\n", errSetDomainNameExists)
+		ret = a.checkPostExist(domain,user)
+		if apiSucess != ret {
+			fmt.Fprintf(w, "%s\n", ret)
 			return
 		}
 		ret = a.processTypeAPost(&s, domain,user)
@@ -907,8 +925,9 @@ func (a *skydnsApi) processPost(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "alias %s \n", notSubDomain)
 			return
 		}
-		if a.checkPostExist(alias) {
-			fmt.Fprintf(w, "%s\n", errSetAliasNameExists)
+		ret = a.checkPostExist(domain,user)
+		if apiSucess != ret {
+			fmt.Fprintf(w, "%s\n", ret)
 			return
 		}
 		ret = a.setSkydnsRecordHost(alias,user, domain, "CNAME")
@@ -960,6 +979,9 @@ func (a *skydnsApi) processPut(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s\n", notSubDomain)
 		return
 	}
+
+	glog.V(2).Infof("processPost domain=%s user =%s body %v\n", domain,user,s)
+
 	a.processLock(domain)
 	defer a.processUnlock(domain)
 
@@ -1008,15 +1030,14 @@ func (a *skydnsApi) processGet(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s\n", notSubDomain)
 		return
 	}
-	var s apiService
-	a.getReqBody(r, &s)
-	if supDomain == domain && s.OpsType ==""{
+	opsType := r.FormValue("type")
+	if supDomain == domain && opsType == ""{
 		fmt.Fprintf(w, "%s\n", noTypeInput)
 		return
 	}
-	opsType :="A"
-	if s.OpsType !="" {
-		opsType = s.OpsType
+
+	if opsType == "" {
+		opsType = "A"
 	}
 	user := r.FormValue("user")
 	a.processLock(domain)
@@ -1025,13 +1046,17 @@ func (a *skydnsApi) processGet(w http.ResponseWriter, r *http.Request) {
 	svc := make(map[string]apiService)
 	err := a.getSkydnsRecords(domain,user, opsType, svc)
 
-	if len(svc) == 0 && err != nil {
+	if err != nil {
 		glog.Infof("domain :%s  ###  %s\n", domain,err.Error())
 		if isEtcdNameNotFound(err){
 			fmt.Fprintf(w, "%s\n", noFindDomainName)
 		}else{
 			fmt.Fprintf(w, "%s\n", err.Error())
 		}
+		return
+	}
+	if  len(svc) == 0{
+		fmt.Fprintf(w, "%s\n", noFindDomainName)
 		return
 	}
 	b, err := json.Marshal(svc)
