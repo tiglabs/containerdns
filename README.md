@@ -122,7 +122,7 @@ the config file like this:
 
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
-the config file like this:
+  the config file like this:
 	...
 	[General]
 	schedule-interval = 60
