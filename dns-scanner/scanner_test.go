@@ -37,7 +37,7 @@ func TestLoopIpAddress(t *testing.T) {
 }
 
 func TestReadConfig(t *testing.T) {
-    configPath := "/etc/skydns/skydns-scanner.conf"
+    configPath := "/etc/containerdns/containerdns-scanner.conf"
     scanner_config, err := readConfig(configPath)
     if err != nil {
         t.Error(err.Error())

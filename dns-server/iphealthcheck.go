@@ -18,7 +18,7 @@ type apiSkydnsIpMonitor struct {
 }
 
 func (s *server) GetSkydnsHostStatus() int64 {
-	// get hosts form /skydns/monitor/status/
+	// get hosts form /containerdns/monitor/status/
 
 	monitorIps := make(map[string]bool)
 	glog.Infof("SyncSkydnsHostStatus start get \n")
@@ -53,7 +53,7 @@ func (s *server) GetSkydnsHostStatus() int64 {
 }
 
 func (s *server) SyncSkydnsHostStatus()  {
-	// get hosts form /skydns/monitor/status/
+	// get hosts form /containerdns/monitor/status/
 
 	sycNow := time.Now().Local()
 	monitorIps := make(map[string]bool)

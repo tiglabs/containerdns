@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The skydns Authors. All rights reserved.
+// Copyright (c) 2017 The containerdns Authors. All rights reserved.
 
 package etcdCached
 
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"encoding/json"
 	etcdv3 "github.com/coreos/etcd/clientv3"
-	dnsServer "github.com/ipdcode/skydns/dns-server"
+	dnsServer "github.com/ipdcode/containerdns/dns-server"
 	"golang.org/x/net/context"
 	"time"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -19,7 +19,7 @@ type Backend struct {
 	timeOut  time.Duration
 }
 
-// NewBackend returns a new Backend for skydns, backed by etcd.
+// NewBackend returns a new Backend for containerdns, backed by etcd.
 func NewBackend(clientv3 etcdv3.Client, ctx context.Context,timeOut int , ttl uint32, priority uint16) *Backend {
 	backend := new(Backend)
 	backend.clientv3 = clientv3

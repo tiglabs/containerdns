@@ -9,8 +9,8 @@ import (
     "golang.org/x/net/context"
     "github.com/coreos/etcd/mvcc/mvccpb"
     etcdv3 "github.com/coreos/etcd/clientv3"
-    "github.com/ipdcode/skydns/dns-schedule/base"
-    string_tools "github.com/ipdcode/skydns/utils/strs"
+    "github.com/ipdcode/containerdns/dns-schedule/base"
+    string_tools "github.com/ipdcode/containerdns/utils/strs"
 )
 
 const (
@@ -233,7 +233,7 @@ func Run() {
 func _generate_real_domain(domain string) string {
     domain = string_tools.TrimSlash(domain)
     domain_list := strings.Split(domain, "/")
-    // first string is "skydns", and last string is ip's md5 value, ignore
+    // first string is "containerdns", and last string is ip's md5 value, ignore
     real_domain_list := make([]string, len(domain_list)-2)
     for i := len(domain_list)-2; i > 0; i-- {
         real_domain_list[len(domain_list) - 2 - i] = domain_list[i]

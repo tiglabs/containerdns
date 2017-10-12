@@ -42,7 +42,7 @@ dns-addr   = 0.0.0.0:53
 nameservers = ""
 subDomainServers = ""
 cacheSize   = 100000
-ip-monitor-path = /hades/monitor/status/
+ip-monitor-path = /containerdns/monitor/status/
 
 [Log]
 log-dir    = /export/log/containerdns
@@ -76,7 +76,7 @@ domain=containerdns.local
 host = 192.168.169.41
 etcd-server = http://127.0.0.1:2379
 ip-monitor-path = /containerdns/monitor/status
-log-dir    = /export/log/hades
+log-dir    = /export/log/containerdns
 log-level  = 2
 log-to-stdio = false
 
@@ -93,7 +93,6 @@ containerdns-auth  = 123456789
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-scanner.conf".
 
 the config file like this:
-
 ...
 [General]
 core = 0
@@ -117,7 +116,6 @@ ca-cert =
 status-path = /containerdns/monitor/status
 report-path = /containerdns/monitor/report
 heart-path = /containerdns/monitor/heart
-
 ...
 
 ### containerdns-schedule
@@ -126,7 +124,6 @@ heart-path = /containerdns/monitor/heart
 
 the config file like this:
 ...
-
 [General]
 schedule-interval = 60
 agent-downtime = 60
@@ -141,7 +138,6 @@ status-path = /containerdns/monitor/status
 report-path = /containerdns/monitor/report
 heart-path = /containerdns/monitor/heart
 lock-path = /containerdns/monitor/lock
-
 ...
 
 ### containerdns-apicmd

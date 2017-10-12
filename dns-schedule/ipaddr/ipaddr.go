@@ -9,7 +9,7 @@ import (
     "golang.org/x/net/context"
     "github.com/coreos/etcd/mvcc/mvccpb"
     etcdv3 "github.com/coreos/etcd/clientv3"
-    "github.com/ipdcode/skydns/dns-schedule/base"
+    "github.com/ipdcode/containerdns/dns-schedule/base"
 )
 
 const (
