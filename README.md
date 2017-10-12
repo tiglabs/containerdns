@@ -1,5 +1,4 @@
 # ContainerDNS
-![image](https://github.com/ipdcode/containerdns/blob/master/images/containerdns.png)
 
 ## Introduction
 ContainerDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
