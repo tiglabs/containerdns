@@ -63,6 +63,7 @@ hone-one  = false
 
 statsServer = 127.0.0.1:9600
 statsServerAuthToken = @containerdns.com
+
 ...
 
 
@@ -71,6 +72,7 @@ statsServerAuthToken = @containerdns.com
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
+...
 [General]
 domain=containerdns.local
 host = 192.168.169.41
@@ -80,13 +82,14 @@ log-dir    = /export/log/containerdns
 log-level  = 2
 log-to-stdio = false
 
-[Kube2Skydns]
+[Kube2DNS]
 kube-enable = NO
 
-[SkydnsApi]
+[DNSApi]
 api-enable = YES
 api-address = 127.0.0.1:9003
 containerdns-auth  = 123456789
+
 
 ### containerdns-scanner
 
@@ -125,7 +128,7 @@ the config file like this:
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
   the config file like this:
-  
+
 	...
 	[General]
 	schedule-interval = 60
@@ -141,7 +144,7 @@ the config file like this:
 	report-path = /containerdns/monitor/report
 	heart-path = /containerdns/monitor/heart
 	lock-path = /containerdns/monitor/lock
-	...
+	
 
 ### containerdns-apicmd
 
