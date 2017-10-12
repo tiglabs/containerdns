@@ -35,6 +35,7 @@ Then get and compile ContainerDNS:
 ### containerdns
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
+
 	
 	[Dns]
 	dns-domain = containerdns.local.
@@ -64,13 +65,12 @@ the config file like this:
 	statsServer = 127.0.0.1:9600
 	statsServerAuthToken = @containerdns.com
 	
-	...
 
 ### containerdns-kubeapi
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
-	...
+
 	[General]
 	domain=containerdns.local
 	host = 192.168.169.41
@@ -127,7 +127,7 @@ the config file like this:
 
 the config file like this:
 
-	...
+
 	[General]
 	schedule-interval = 60
 	agent-downtime = 60
