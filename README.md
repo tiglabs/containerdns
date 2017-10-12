@@ -45,7 +45,7 @@ cacheSize   = 100000
 ip-monitor-path = /hades/monitor/status/
 
 [Log]
-log-dir    = /export/log/skydns
+log-dir    = /export/log/containerdns
 log-level  = 2
 log-to-stdio = true
 
@@ -62,13 +62,13 @@ hone-one  = false
 [Stats]
 
 statsServer = 127.0.0.1:9600
-statsServerAuthToken = @skydns.com
+statsServerAuthToken = @containerdns.com
 ...
 
 
 
 ### containerdns-kubeapi
-* `config-file`: read configs from the file, default "/etc/skydns/skydns.conf".
+* `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
 [General]
@@ -98,7 +98,7 @@ the config file like this:
 core = 0
 enable-check = true
 hostname = hostname1
-log-dir = /export/log/skydns
+log-dir = /export/log/containerdns
 log-level = 100
 heartbeat-interval = 30
 [Check]
@@ -113,9 +113,9 @@ etcd-machine = http://127.0.0.1:2379
 tls-key =
 tls-pem =
 ca-cert =
-status-path = /skydns/monitor/status
-report-path = /skydns/monitor/report
-heart-path = /skydns/monitor/heart
+status-path = /containerdns/monitor/status
+report-path = /containerdns/monitor/report
+heart-path = /containerdns/monitor/heart
 ...
 
 ### containerdns-schedule
@@ -127,7 +127,7 @@ the config file like this:
 [General]
 schedule-interval = 60
 agent-downtime = 60
-log-dir = /export/log/skydns
+log-dir = /export/log/containerdns
 log-level = 100
 hostname = hostname1
 force-lock-time = 1800
@@ -154,18 +154,18 @@ lock-path = /containerdns/monitor/lock
     export SKYDNS_API_TOKEN=123456789
 	
     containerdns-apicmd -list	
-	domain:                      qiyf-nginx-5.default.svc.skydns.local       val: { type:A  ips:[192.168.19.113] }
-	domain:                      qiyf-nginx-9.default.svc.skydns.local       val: { type:A  ips:[192.168.19.120] }
-	domain:                      qiyf-nginx-4.default.svc.skydns.local       val: { type:A  ips:[192.168.19.114] }
-	domain:                      qiyf-nginx-6.default.svc.skydns.local       val: { type:A  ips:[192.168.19.116] }
-	domain:                     qiyf-nginx-14.default.svc.skydns.local       val: { type:A  ips:[192.168.19.125] }
-	domain:                     qiyf-nginx-27.default.svc.skydns.local       val: { type:A  ips:[192.168.19.147] }
-	domain:                     qiyf-nginx-15.default.svc.skydns.local       val: { type:A  ips:[192.168.19.126] }
-	domain:                     qiyf-nginx-19.default.svc.skydns.local       val: { type:A  ips:[192.168.19.13] }
-	domain:                     qiyf-nginx-30.default.svc.skydns.local       val: { type:A  ips:[192.168.19.148] }
-	domain:                      qiyf-nginx-1.default.svc.skydns.local       val: { type:A  ips:[192.168.19.115] }
-	domain:                     qiyf-nginx-10.default.svc.skydns.local       val: { type:A  ips:[192.168.19.121] }
-	domain:                     qiyf-nginx-25.default.svc.skydns.local       val: { type:A  ips:[192.168.19.146] }
+	domain:                      qiyf-nginx-5.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.113] }
+	domain:                      qiyf-nginx-9.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.120] }
+	domain:                      qiyf-nginx-4.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.114] }
+	domain:                      qiyf-nginx-6.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.116] }
+	domain:                     qiyf-nginx-14.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.125] }
+	domain:                     qiyf-nginx-27.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.147] }
+	domain:                     qiyf-nginx-15.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.126] }
+	domain:                     qiyf-nginx-19.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.13] }
+	domain:                     qiyf-nginx-30.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.148] }
+	domain:                      qiyf-nginx-1.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.115] }
+	domain:                     qiyf-nginx-10.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.121] }
+	domain:                     qiyf-nginx-25.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.146] }
 
 	
 	containerdns-apicmd -show qiyf-nginx-5.default
@@ -177,13 +177,13 @@ lock-path = /containerdns/monitor/lock
 	% curl -H "Content-Type:application/json;charset=UTF-8"  -X POST -d '{"type":"A","ips":["192.168.10.1","192.168.10.2","192.168.10.3"]}'  http://127.0.0.1:9001/containerdns/api/cctv2?token="123456789"      
     OK
 #### typeCname
-	% curl -H "Content-Type:application/json;charset=UTF-8"   -X POST -d '{"type":"cname","alias":"tv1"}' http://127.0.0.1:9001/containerdns/api/cctv2.skydns.local?token="123456789"  
+	% curl -H "Content-Type:application/json;charset=UTF-8"   -X POST -d '{"type":"cname","alias":"tv1"}' http://127.0.0.1:9001/containerdns/api/cctv2.containerdns.local?token="123456789"  
    OK
 
 ### containerdns
 
 ####  typeA
-	% nslookup qiyf-nginx-5.default.svc.skydns.local 127.0.0.1
+	% nslookup qiyf-nginx-5.default.svc.containerdns.local 127.0.0.1
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
@@ -205,14 +205,14 @@ lock-path = /containerdns/monitor/lock
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	tv1.skydns.local    canonical name = cctv2.containerdns.local.
+	tv1.containerdns.local    canonical name = cctv2.containerdns.local.
 	Name:   cctv2.containerdns.local
 	Address: 192.168.10.3
 	
 ####  monitor
 	 If the domain may have multiple ips, then dns-scanner is used to monitor the ips behand the domain. 
-	 When the service is not reachable, dns-scanner will change the status of the ip. And the skydns will monitor the ip status, 
-	 when it comes down, skydns will choose a good one.
+	 When the service is not reachable, dns-scanner will change the status of the ip. And the containerdns will monitor the ip status, 
+	 when it comes down, containerdns will choose a good one.
 	 
 	 cctv2.containerdns.local    ips[192.168.10.1,192.168.10.2,192.168.10.3]
 	 
@@ -233,7 +233,7 @@ lock-path = /containerdns/monitor/lock
 	Name:   cctv2.containerdns.local
 	Address: 192.168.10.1
 	
-	we query the domain cctv2.containerdns.local form skydns we get the ip 192.168.10.3, then we shut down the service, we query the domain again
+	we query the domain cctv2.containerdns.local form containerdns we get the ip 192.168.10.3, then we shut down the service, we query the domain again
 	we get the ip 192.168.10.1.
 
 ## Performance Test
