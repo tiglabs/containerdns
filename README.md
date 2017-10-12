@@ -93,52 +93,52 @@ containerdns-auth  = 123456789
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-scanner.conf".
 
 the config file like this:
-...
-[General]
-core = 0
-enable-check = true
-hostname = hostname1
-log-dir = /export/log/containerdns
-log-level = 100
-heartbeat-interval = 30
-[Check]
-check-timeout = 2
-check-interval = 10
-scann-ports = 22, 80, 8080
-enable-icmp = true
-ping-timeout = 1000
-ping-count = 2
-[Etcd]
-etcd-machine = http://127.0.0.1:2379
-tls-key =
-tls-pem =
-ca-cert =
-status-path = /containerdns/monitor/status
-report-path = /containerdns/monitor/report
-heart-path = /containerdns/monitor/heart
-...
+	...
+	[General]
+	core = 0
+	enable-check = true
+	hostname = hostname1
+	log-dir = /export/log/containerdns
+	log-level = 100
+	heartbeat-interval = 30
+	[Check]
+	check-timeout = 2
+	check-interval = 10
+	scann-ports = 22, 80, 8080
+	enable-icmp = true
+	ping-timeout = 1000
+	ping-count = 2
+	[Etcd]
+	etcd-machine = http://127.0.0.1:2379
+	tls-key =
+	tls-pem =
+	ca-cert =
+	status-path = /containerdns/monitor/status
+	report-path = /containerdns/monitor/report
+	heart-path = /containerdns/monitor/heart
+	...
 
 ### containerdns-schedule
 
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
 the config file like this:
-...
-[General]
-schedule-interval = 60
-agent-downtime = 60
-log-dir = /export/log/containerdns
-log-level = 100
-hostname = hostname1
-force-lock-time = 1800
-
-[Etcd]
-etcd-machine = http://127.0.0.1:2379
-status-path = /containerdns/monitor/status
-report-path = /containerdns/monitor/report
-heart-path = /containerdns/monitor/heart
-lock-path = /containerdns/monitor/lock
-...
+	...
+	[General]
+	schedule-interval = 60
+	agent-downtime = 60
+	log-dir = /export/log/containerdns
+	log-level = 100
+	hostname = hostname1
+	force-lock-time = 1800
+	
+	[Etcd]
+	etcd-machine = http://127.0.0.1:2379
+	status-path = /containerdns/monitor/status
+	report-path = /containerdns/monitor/report
+	heart-path = /containerdns/monitor/heart
+	lock-path = /containerdns/monitor/lock
+	...
 
 ### containerdns-apicmd
 
