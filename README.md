@@ -1,8 +1,8 @@
-# SkyDNS
-![image](https://github.com/ipdcode/skydns/blob/master/images/skydns.png)
+# ContainerDNS
+![image](https://github.com/ipdcode/containerdns/blob/master/images/skydns.png)
 
 ## Introduction
-SkyDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
+ContainerDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
 the services in k8s cluster,when the service is created and has been assigned with external ips, 
 the user(docker)in cluster can access the service with the domain.
 When the domain has multiple ips, the skydns will choose one actived for the user randomly, 
@@ -17,16 +17,16 @@ then the user access the domain later, the user will get the same service ip.
 * `skydns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on skydns-kubeapi.
 
 ## Design Architecture
-  ![image](https://github.com/ipdcode/skydns/blob/master/images/ContainerDNS_design_architecture.png)
+  ![image](https://github.com/ipdcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
 
 ## Setup / Install
 
-Then get and compile SkyDNS:
+Then get and compile ContainerDNS:
 
-    go get github.com/ipdcode/skydns
-    cd $GOPATH/src/github.com/ipdcode/skydns
+    go get github.com/ipdcode/containerdns
+    cd $GOPATH/src/github.com/ipdcode/containerdns
     go build -v
-	cd $GOPATH/src/github.com/ipdcode/skydns/skydns-kubeapi
+	cd $GOPATH/src/github.com/ipdcode/containerdns/containerdns-kubeapi
 	go build -v
 	...
 
@@ -34,11 +34,11 @@ Then get and compile SkyDNS:
 ## Configuration
 
 ### skydns
-* `config-file`: read configs from the file, default "/etc/skydns/skydns.conf".
+* `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
 [Dns]
-dns-domain = skydns.local.
+dns-domain = containerdns.local.
 dns-addr   = 0.0.0.0:53
 nameservers = ""
 subDomainServers = ""
@@ -68,12 +68,12 @@ statsServerAuthToken = @skydns.com
 
 
 
-### skydns-kubeapi
+### containerdns-kubeapi
 * `config-file`: read configs from the file, default "/etc/skydns/skydns.conf".
 the config file like this:
 
 [General]
-domain=hades.local
+domain=containerdns.local
 host = 192.168.169.41
 etcd-server = http://127.0.0.1:2379
 ip-monitor-path = /hades/monitor/status
@@ -87,11 +87,11 @@ kube-enable = NO
 [SkydnsApi]
 api-enable = YES
 api-address = 127.0.0.1:9003
-skydns-auth  = 123456789
+containerdns-auth  = 123456789
 
-### skydns-scanner
+### containerdns-scanner
 
-* `config-file`: read configs from the file, default "/etc/skydns/skydns-scanner.conf".
+* `config-file`: read configs from the file, default "/etc/containerdns/containerdns-scanner.conf".
 
 the config file like this:
 ...
@@ -119,9 +119,9 @@ report-path = /skydns/monitor/report
 heart-path = /skydns/monitor/heart
 ...
 
-### skydns-schedule
+### containerdns-schedule
 
-* `config-file`: read configs from the file, default "/etc/skydns/skydns-schedule.conf".
+* `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
 the config file like this:
 ...
@@ -135,26 +135,26 @@ force-lock-time = 1800
 
 [Etcd]
 etcd-machine = http://127.0.0.1:2379
-status-path = /skydns/monitor/status
-report-path = /skydns/monitor/report
-heart-path = /skydns/monitor/heart
-lock-path = /skydns/monitor/lock
+status-path = /containerdns/monitor/status
+report-path = /containerdns/monitor/report
+heart-path = /containerdns/monitor/heart
+lock-path = /containerdns/monitor/lock
 ...
 
-### skydns-apicmd
+### containerdns-apicmd
 
-* `addr`: skydns api address,such as 127.0.0.1:9001 or form env(SKYDNS_API_ADDR).
+* `addr`: containerdns api address,such as 127.0.0.1:9001 or form env(SKYDNS_API_ADDR).
 * `domain`: the domain to show
 * `show`: show one domain
 * `list`: show all domains
 
 ## Testing
 
-### skydns-apicmd
+### containerdns-apicmd
     export SKYDNS_API_ADDR=127.0.0.1:9001
     export SKYDNS_API_TOKEN=123456789
 	
-    skydns-apicmd -list	
+    containerdns-apicmd -list	
 	domain:                      qiyf-nginx-5.default.svc.skydns.local       val: { type:A  ips:[192.168.19.113] }
 	domain:                      qiyf-nginx-9.default.svc.skydns.local       val: { type:A  ips:[192.168.19.120] }
 	domain:                      qiyf-nginx-4.default.svc.skydns.local       val: { type:A  ips:[192.168.19.114] }
@@ -169,19 +169,19 @@ lock-path = /skydns/monitor/lock
 	domain:                     qiyf-nginx-25.default.svc.skydns.local       val: { type:A  ips:[192.168.19.146] }
 
 	
-	skydns-apicmd -show qiyf-nginx-5.default
+	containerdns-apicmd -show qiyf-nginx-5.default
     domain:                      qiyf-nginx-5.default.svc.skydns.local       val: { type:A  ips:[192.168.19.113] }
 	
-### skydns-kubeapi
+### containerdns-kubeapi
     we use curl to test the user api.
 ####  typeA
-	% curl -H "Content-Type:application/json;charset=UTF-8"  -X POST -d '{"type":"A","ips":["192.168.10.1","192.168.10.2","192.168.10.3"]}'  http://127.0.0.1:9001/skydns/api/cctv2?token="123456789"      
+	% curl -H "Content-Type:application/json;charset=UTF-8"  -X POST -d '{"type":"A","ips":["192.168.10.1","192.168.10.2","192.168.10.3"]}'  http://127.0.0.1:9001/containerdns/api/cctv2?token="123456789"      
     OK
 #### typeCname
-	% curl -H "Content-Type:application/json;charset=UTF-8"   -X POST -d '{"type":"cname","alias":"tv1"}' http://127.0.0.1:9001/skydns/api/cctv2.skydns.local?token="123456789"  
+	% curl -H "Content-Type:application/json;charset=UTF-8"   -X POST -d '{"type":"cname","alias":"tv1"}' http://127.0.0.1:9001/containerdns/api/cctv2.skydns.local?token="123456789"  
    OK
 
-### skydns
+### containerdns
 
 ####  typeA
 	% nslookup qiyf-nginx-5.default.svc.skydns.local 127.0.0.1
@@ -191,7 +191,7 @@ lock-path = /skydns/monitor/lock
 	Name:   qiyf-nginx-5.default.svc.skydns.local
 	Address: 192.168.19.113
 
-	if the domain have more than one ip, skydns will return a radom one.
+	if the domain have more than one ip, containerdns will return a radom one.
 
 	% nslookup cctv2.skydns.local 127.0.0.1
 	Server:         127.0.0.1
@@ -202,11 +202,11 @@ lock-path = /skydns/monitor/lock
 
 	 
 ####  typeCname
-	% nslookup tv1.skydns.local 127.0.0.1
+	% nslookup tv1.containerdns.local 127.0.0.1
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	tv1.skydns.local    canonical name = cctv2.skydns.local.
+	tv1.skydns.local    canonical name = cctv2.containerdns.local.
 	Name:   cctv2.skydns.local
 	Address: 192.168.10.3
 	
@@ -215,26 +215,26 @@ lock-path = /skydns/monitor/lock
 	 When the service is not reachable, dns-scanner will change the status of the ip. And the skydns will monitor the ip status, 
 	 when it comes down, skydns will choose a good one.
 	 
-	 cctv2.skydns.local    ips[192.168.10.1,192.168.10.2,192.168.10.3]
+	 cctv2.containerdns.local    ips[192.168.10.1,192.168.10.2,192.168.10.3]
 	 
-	% nslookup cctv2.skydns.local 127.0.0.1
+	% nslookup cctv2.containerdns.local 127.0.0.1
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
 	Name:   cctv2.skydns.local
 	Address: 192.168.10.3
 	
-	% etcdctl get /skydns/monitor/status/192.168.10.3
+	% etcdctl get /containerdns/monitor/status/192.168.10.3
 	{"status":"DOWN"}
 
-	% nslookup cctv2.skydns.local 127.0.0.1
+	% nslookup cctv2.containerdns.local 127.0.0.1
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	Name:   cctv2.skydns.local
+	Name:   cctv2.containerdns.local
 	Address: 192.168.10.1
 	
-	we query the domain cctv2.skydns.local form skydns we get the ip 192.168.10.3, then we shut down the service, we query the domain again
+	we query the domain cctv2.containerdns.local form skydns we get the ip 192.168.10.3, then we shut down the service, we query the domain again
 	we get the ip 192.168.10.1.
 
 ## Performance Test
@@ -249,9 +249,9 @@ lock-path = /skydns/monitor/lock
     queryperf
 
 ### Test result
-   ![image](https://github.com/ipdcode/skydns/blob/master/images/DNS_performance.png)
+   ![image](https://github.com/ipdcode/containerdns/blob/master/images/DNS_performance.png)
 
 ## Future
 
 ### improve the performance of UDP packets (DNS use UDP)
-    Help SkyDNS (DNS) services improve throughput performace with DPDK technology
+    Help ContainerDNS (DNS) services improve throughput performace with DPDK technology
