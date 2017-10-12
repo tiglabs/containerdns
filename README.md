@@ -34,6 +34,7 @@ Then get and compile ContainerDNS:
 
 ### containerdns
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
+
 the config file like this:
 
 	
@@ -68,6 +69,7 @@ the config file like this:
 
 ### containerdns-kubeapi
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
+
 the config file like this:
 
 
@@ -88,6 +90,7 @@ the config file like this:
 	api-address = 127.0.0.1:9003
 	containerdns-auth  = 123456789
 	
+
 
 ### containerdns-scanner
 
