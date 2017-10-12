@@ -35,61 +35,59 @@ Then get and compile ContainerDNS:
 ### containerdns
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
-
-[Dns]
-dns-domain = containerdns.local.
-dns-addr   = 0.0.0.0:53
-nameservers = ""
-subDomainServers = ""
-cacheSize   = 100000
-ip-monitor-path = /containerdns/monitor/status/
-
-[Log]
-log-dir    = /export/log/containerdns
-log-level  = 2
-log-to-stdio = true
-
-[Etcd]
-etcd-servers = http://127.0.0.1:2379
-etcd-certfile = ""
-etcd-keyfile = ""
-etcd-cafile = ""
-
-[Fun]
-random-one = false
-hone-one  = false
-
-[Stats]
-
-statsServer = 127.0.0.1:9600
-statsServerAuthToken = @containerdns.com
-
-...
-
-
+	
+	[Dns]
+	dns-domain = containerdns.local.
+	dns-addr   = 0.0.0.0:53
+	nameservers = ""
+	subDomainServers = ""
+	cacheSize   = 100000
+	ip-monitor-path = /containerdns/monitor/status/
+	
+	[Log]
+	log-dir    = /export/log/containerdns
+	log-level  = 2
+	log-to-stdio = true
+	
+	[Etcd]
+	etcd-servers = http://127.0.0.1:2379
+	etcd-certfile = ""
+	etcd-keyfile = ""
+	etcd-cafile = ""
+	
+	[Fun]
+	random-one = false
+	hone-one  = false
+	
+	[Stats]
+	
+	statsServer = 127.0.0.1:9600
+	statsServerAuthToken = @containerdns.com
+	
+	...
 
 ### containerdns-kubeapi
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
-...
-[General]
-domain=containerdns.local
-host = 192.168.169.41
-etcd-server = http://127.0.0.1:2379
-ip-monitor-path = /containerdns/monitor/status
-log-dir    = /export/log/containerdns
-log-level  = 2
-log-to-stdio = false
-
-[Kube2DNS]
-kube-enable = NO
-
-[DNSApi]
-api-enable = YES
-api-address = 127.0.0.1:9003
-containerdns-auth  = 123456789
-
+	...
+	[General]
+	domain=containerdns.local
+	host = 192.168.169.41
+	etcd-server = http://127.0.0.1:2379
+	ip-monitor-path = /containerdns/monitor/status
+	log-dir    = /export/log/containerdns
+	log-level  = 2
+	log-to-stdio = false
+	
+	[Kube2DNS]
+	kube-enable = NO
+	
+	[DNSApi]
+	api-enable = YES
+	api-address = 127.0.0.1:9003
+	containerdns-auth  = 123456789
+	
 
 ### containerdns-scanner
 
@@ -97,7 +95,7 @@ containerdns-auth  = 123456789
 
 the config file like this:
 
-	...
+
 	[General]
 	core = 0
 	enable-check = true
@@ -121,13 +119,13 @@ the config file like this:
 	report-path = /containerdns/monitor/report
 	heart-path = /containerdns/monitor/heart
 	
-	...
+
 
 ### containerdns-schedule
 
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
-  the config file like this:
+the config file like this:
 
 	...
 	[General]
@@ -144,7 +142,6 @@ the config file like this:
 	report-path = /containerdns/monitor/report
 	heart-path = /containerdns/monitor/heart
 	lock-path = /containerdns/monitor/lock
-	
 
 ### containerdns-apicmd
 
