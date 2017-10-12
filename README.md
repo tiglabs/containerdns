@@ -11,10 +11,10 @@ Also the skydns offer "session persistence", that means we query one domain from
 then the user access the domain later, the user will get the same service ip.   
 
 ## Components
-* `skydns`: the main service to offer DNS query.
-* `skydns-kubeapi`: monitor the changes of k8s services, and record the change in the etcd. It offered the
+* `containerdns`: the main service to offer DNS query.
+* `containerdns-kubeapi`: monitor the changes of k8s services, and record the change in the etcd. It offered the
    original data for skydns, meanwhille skydns-kubeapi offers the RESTful api for users to maintain domain records.
-* `skydns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on skydns-kubeapi.
+* `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
 
 ## Design Architecture
   ![image](https://github.com/ipdcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
