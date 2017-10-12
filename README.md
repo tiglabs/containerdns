@@ -93,6 +93,7 @@ containerdns-auth  = 123456789
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-scanner.conf".
 
 the config file like this:
+
 	...
 	[General]
 	core = 0
@@ -116,6 +117,7 @@ the config file like this:
 	status-path = /containerdns/monitor/status
 	report-path = /containerdns/monitor/report
 	heart-path = /containerdns/monitor/heart
+	
 	...
 
 ### containerdns-schedule
@@ -123,6 +125,7 @@ the config file like this:
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns-schedule.conf".
 
   the config file like this:
+  
 	...
 	[General]
 	schedule-interval = 60
