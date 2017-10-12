@@ -1,18 +1,18 @@
 # ContainerDNS
 
 ## Introduction
-ContainerDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. skydns-kubeapi will monitor 
+ContainerDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. containerdns-kubeapi will monitor 
 the services in k8s cluster,when the service is created and has been assigned with external ips, 
 the user(docker)in cluster can access the service with the domain.
-When the domain has multiple ips, the skydns will choose one actived for the user randomly, 
+When the domain has multiple ips, the containerdns will choose one actived for the user randomly, 
 it seems like a load balancer.
-Also the skydns offer "session persistence", that means we query one domain from one user ip,
+Also the containerdns offer "session persistence", that means we query one domain from one user ip,
 then the user access the domain later, the user will get the same service ip.   
 
 ## Components
 * `containerdns`: the main service to offer DNS query.
 * `containerdns-kubeapi`: monitor the changes of k8s services, and record the change in the etcd. It offered the
-   original data for skydns, meanwhille skydns-kubeapi offers the RESTful api for users to maintain domain records.
+   original data for containerdns, meanwhille containerdns-kubeapi offers the RESTful api for users to maintain domain records.
 * `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
 
 ## Design Architecture
@@ -32,7 +32,7 @@ Then get and compile ContainerDNS:
 
 ## Configuration
 
-### skydns
+### containerdns
 * `config-file`: read configs from the file, default "/etc/containerdns/containerdns.conf".
 the config file like this:
 
@@ -75,7 +75,7 @@ the config file like this:
 domain=containerdns.local
 host = 192.168.169.41
 etcd-server = http://127.0.0.1:2379
-ip-monitor-path = /hades/monitor/status
+ip-monitor-path = /containerdns/monitor/status
 log-dir    = /export/log/hades
 log-level  = 2
 log-to-stdio = false
@@ -169,7 +169,7 @@ lock-path = /containerdns/monitor/lock
 
 	
 	containerdns-apicmd -show qiyf-nginx-5.default
-    domain:                      qiyf-nginx-5.default.svc.skydns.local       val: { type:A  ips:[192.168.19.113] }
+    domain:                      qiyf-nginx-5.default.svc.containerdns.local       val: { type:A  ips:[192.168.19.113] }
 	
 ### containerdns-kubeapi
     we use curl to test the user api.
@@ -187,16 +187,16 @@ lock-path = /containerdns/monitor/lock
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	Name:   qiyf-nginx-5.default.svc.skydns.local
+	Name:   qiyf-nginx-5.default.svc.containerdns.local
 	Address: 192.168.19.113
 
 	if the domain have more than one ip, containerdns will return a radom one.
 
-	% nslookup cctv2.skydns.local 127.0.0.1
+	% nslookup cctv2.containerdns.local 127.0.0.1
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	Name:   cctv2.skydns.local
+	Name:   cctv2.containerdns.local
 	Address: 192.168.10.3
 
 	 
@@ -206,7 +206,7 @@ lock-path = /containerdns/monitor/lock
 	Address:        127.0.0.1#53
 
 	tv1.skydns.local    canonical name = cctv2.containerdns.local.
-	Name:   cctv2.skydns.local
+	Name:   cctv2.containerdns.local
 	Address: 192.168.10.3
 	
 ####  monitor
@@ -220,7 +220,7 @@ lock-path = /containerdns/monitor/lock
 	Server:         127.0.0.1
 	Address:        127.0.0.1#53
 
-	Name:   cctv2.skydns.local
+	Name:   cctv2.containerdns.local
 	Address: 192.168.10.3
 	
 	% etcdctl get /containerdns/monitor/status/192.168.10.3
