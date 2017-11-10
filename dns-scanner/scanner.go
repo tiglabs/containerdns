@@ -11,11 +11,11 @@ import (
     "github.com/golang/glog"
     "os"
     "gopkg.in/gcfg.v1"
-    "github.com/ipdcode/containerdns/utils/ping"
-    "github.com/ipdcode/containerdns/utils/etcdv3"
+    "github.com/tigcode/containerdns/utils/ping"
+    "github.com/tigcode/containerdns/utils/etcdv3"
     "strconv"
-    "github.com/ipdcode/containerdns/utils/logs"
-    "github.com/ipdcode/containerdns/utils/alert-mail"
+    "github.com/tigcode/containerdns/utils/logs"
+    "github.com/tigcode/containerdns/utils/alert-mail"
     "sync"
 )
 

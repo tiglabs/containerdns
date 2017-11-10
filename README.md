@@ -16,16 +16,16 @@ then the user access the domain later, the user will get the same service ip.
 * `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
 
 ## Design Architecture
-  ![image](https://github.com/ipdcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
+  ![image](https://github.com/tigcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
 
 ## Setup / Install
 
 Then get and compile ContainerDNS:
 
-    go get github.com/ipdcode/containerdns
-    cd $GOPATH/src/github.com/ipdcode/containerdns
+    go get github.com/tigcode/containerdns
+    cd $GOPATH/src/github.com/tigcode/containerdns
     go build -v
-	cd $GOPATH/src/github.com/ipdcode/containerdns/containerdns-kubeapi
+	cd $GOPATH/src/github.com/tigcode/containerdns/containerdns-kubeapi
 	go build -v
 	...
 
@@ -254,7 +254,7 @@ the config file like this:
     queryperf
 
 ### Test result
-   ![image](https://github.com/ipdcode/containerdns/blob/master/images/DNS_performance.png)
+   ![image](https://github.com/tigcode/containerdns/blob/master/images/DNS_performance.png)
 
 ## Future
 

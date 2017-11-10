@@ -10,7 +10,7 @@ import (
 	 "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/golang/glog"
-	"github.com/ipdcode/containerdns/queue"
+	"github.com/tigcode/containerdns/queue"
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
 	"math"
