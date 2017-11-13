@@ -13,8 +13,12 @@ GOPATH=${PWD}/../../../../
 
 .PHONY: all binary
 default: all
-all: binary
+all: binary kubeapi
 binary: dist/containerdns
+kubeapi: dist/kubeapi
+scanner: dist/dns-scanner
+schedule: dist/dns-schedule
+
 
 docker-image: $(DEPLOY_CONTAINER_MARKER)
 
@@ -38,5 +42,23 @@ vendor: glide.yaml
 dist/containerdns: $(SRCFILES) vendor
 	GOPATH=${GOPATH} CGO_ENABLED=1 go build -v -o dist/containerdns \
 	-ldflags "-X main.VERSION=$(VERSION) -s -w" main.go
+
+
+KUBEAPISRC=containerdns-kubeapi/api.go  containerdns-kubeapi/server.go
+dist/kubeapi: $(KUBEAPISRC) vendor
+	GOPATH=${GOPATH} CGO_ENABLED=1 go build -v -o dist/containerdns-kubeapi \
+        -ldflags "-X main.VERSION=$(VERSION) -s -w" containerdns-kubeapi/*.go
+
+
+SCANNERSRC=dns-scanner/scanner.go $(wildcard dns-scanner/ev2/*.go)
+dist/dns-scanner: $(SCANNERSRC) vendor
+	GOPATH=${GOPATH} CGO_ENABLED=1 go build -v -o dist/dns-scanner \
+        -ldflags "-X main.VERSION=$(VERSION) -s -w" dns-scanner/scanner.go
+
+
+SCHEDULESRC=dns-schedule/schedule.go $(wildcard dns-scanner/base/*.go) $(wildcard dns-scanner/domain/*.go) $(wildcard dns-scanner/ipaddr/*.go)
+dist/dns-schedule: $(SCHEDULESRC) vendor
+	GOPATH=${GOPATH} CGO_ENABLED=1 go build -v -o dist/dns-schedule \
+        -ldflags "-X main.VERSION=$(VERSION) -s -w" dns-schedule/schedule.go
 
 
