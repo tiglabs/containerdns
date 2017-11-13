@@ -13,7 +13,7 @@ GOPATH=${PWD}/../../../../
 
 .PHONY: all binary
 default: all
-all: binary kubeapi
+all: binary kubeapi scanner schedule
 binary: dist/containerdns
 kubeapi: dist/kubeapi
 scanner: dist/dns-scanner
