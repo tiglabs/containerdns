@@ -189,10 +189,13 @@ func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 	return cli, nil
 }
 
+
+var VERSION string
+
 func main() {
 	flag.Parse()
 	if version {
-		s := server.Version + ": "+ C.GoString(C.build_time())
+		s := server.Version + ": "+ VERSION
 		fmt.Printf("%s\n", s)
 		return
 	}
