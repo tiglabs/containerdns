@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 SRCFILES=main.go $(wildcard utils/*.go) $(wildcard dns-server/*.go) $(wildcard backends/*.go)  $(wildcard  queue/*.go)
 
-VERSION?=$(shell git describe --tags)
-
+#VERSION?=$(shell git describe --tags)
+VERSION?=$(shell git rev-parse HEAD)
 
 
 # Ensure that the dist directory is always created
