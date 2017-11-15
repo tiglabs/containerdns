@@ -14,6 +14,7 @@ then the user access the domain later, the user will get the same service ip.
 * `containerdns-kubeapi`: monitor the changes of k8s services, and record the change in the etcd. It offered the
    original data for containerdns, meanwhille containerdns-kubeapi offers the RESTful api for users to maintain domain records.
 * `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
+* `etcd`: used to store DNS information, etcd v3 api is used.
 
 ## Design Architecture
   ![image](https://github.com/tigcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
