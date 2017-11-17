@@ -56,6 +56,7 @@ func (self *Queue) EnQueue(val interface{}) {
 	atomic.CompareAndSwapPointer(&(self.tail),tail, newNode)
 }
 
+// queue functions
 func (self *Queue) DeQueue() (val interface{}) {
 	var head, tail, next unsafe.Pointer
 	for {

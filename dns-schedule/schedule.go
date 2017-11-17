@@ -5,10 +5,10 @@ import (
     "os"
     "github.com/golang/glog"
     "gopkg.in/gcfg.v1"
-    "github.com/ipdcode/skydns/utils/logs"
-    "github.com/ipdcode/skydns/dns-schedule/base"
-    "github.com/ipdcode/skydns/dns-schedule/domain"
-    "github.com/ipdcode/skydns/dns-schedule/ipaddr"
+    "github.com/tigcode/containerdns/utils/logs"
+    "github.com/tigcode/containerdns/dns-schedule/base"
+    "github.com/tigcode/containerdns/dns-schedule/domain"
+    "github.com/tigcode/containerdns/dns-schedule/ipaddr"
     "strings"
     "time"
 )
@@ -25,7 +25,7 @@ const (
 )
 
 func init() {
-    flag.StringVar(&configfile, "config-file", "/etc/skydns/skydns-schedule.conf", "read config from the file")
+    flag.StringVar(&configfile, "config-file", "/etc/containerdns/containerdns-schedule.conf", "read config from the file")
     flag.Parse()
     var e error; if config, e = readConfig(configfile); e != nil {
         glog.Fatal("Read config file error, due to", e.Error())
@@ -80,7 +80,7 @@ func WatchJobPath() {
 }
 
 func main() {
-    glog.V(0).Infoln("Starting skydns-schedule-agent")
+    glog.V(0).Infoln("Starting containerdns-schedule-agent")
 
     if err := SyncJobPath(); err != nil {
         glog.Error("Sync report and status path failed, due to ", err.Error())

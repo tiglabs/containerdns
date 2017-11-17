@@ -6,7 +6,7 @@ import (
 )
 
 func TestReadConfig(t *testing.T) {
-    configPath := "/etc/skydns/skydns-schedule.conf"
+    configPath := "/etc/containerdns/containerdns-schedule.conf"
     scanner_config, err := readConfig(configPath)
     if err != nil {
         t.Error(err.Error())

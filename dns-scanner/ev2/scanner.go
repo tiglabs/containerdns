@@ -9,11 +9,11 @@ import (
     "sync/atomic"
     "github.com/golang/glog"
     "os"
-    "github.com/ipdcode/skydns/utils"
-    "github.com/ipdcode/skydns/utils/etcdv2"
+    "github.com/tigcode/containerdns/utils"
+    "github.com/tigcode/containerdns/utils/etcdv2"
     "strconv"
-    "github.com/ipdcode/skydns/utils/logs"
-    "github.com/ipdcode/skydns/utils/alert-mail"
+    "github.com/tigcode/containerdns/utils/logs"
+    "github.com/tigcode/containerdns/utils/alert-mail"
     "sync"
     "gopkg.in/gcfg.v1"
 )
@@ -75,7 +75,7 @@ var (
 )
 
 func init() {
-    flag.StringVar(&configfile, "config-file", "/etc/skydns/skydns-scanner.conf", "read config from the file")
+    flag.StringVar(&configfile, "config-file", "/etc/containerdns/containerdns-scanner.conf", "read config from the file")
     flag.Parse()
     var e error; if config, e = readConfig(configfile); e != nil {
         glog.Fatal("Read config file error, due to", e.Error())
@@ -103,7 +103,7 @@ func _generate_real_domain(domain string) string {
     domain = strings.TrimPrefix(domain, "/")
     domain = strings.TrimSuffix(domain, "/")
     domain_list := strings.Split(domain, "/")
-    // first string is "skydns", and last string is ip's md5 value, ignore
+    // first string is "containerdns", and last string is ip's md5 value, ignore
     real_domain_list := make([]string, len(domain_list) - 1)
     for i := len(domain_list) - 1; i > 0; i-- {
         real_domain_list[len(domain_list) - 1 - i] = domain_list[i]

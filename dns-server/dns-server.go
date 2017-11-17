@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The skydns Authors. All rights reserved.
+// Copyright (c) 2017 The containerdns Authors. All rights reserved.
 // Use of this source code is governed by The MIT License (MIT) that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import (
 	 "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/golang/glog"
-	"github.com/ipdcode/skydns/queue"
+	"github.com/tigcode/containerdns/queue"
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
 	"math"
@@ -23,7 +23,7 @@ import (
 )
 
 const Version = "2.1.1"
-const DnsPathPrefix  = "skydns"
+const DnsPathPrefix  = "containerdns"
 
 var (
 	EtcdCachesLock   sync.RWMutex                                              // lcok EtcdRecordCaches
@@ -74,7 +74,7 @@ func appendDnsDomain(s1, s2 string) string {
 	}
 	return s1 + "." + s2
 }
-// New returns a new skydns server.
+// New returns a new containerdns server.
 func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameServers []string, subDomainServers map[string][]string,cacheSize int ,random,hold bool,skip bool) *server {
 	s := new (server)
 	s. backend   =      backend
@@ -95,8 +95,8 @@ func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameS
 	return s
 }
 
-// Path converts a domainname to an etcd path. If s looks like service.staging.skydns.local.,
-// the resulting key will be /skydns/local/skydns/staging/service .
+// Path converts a domainname to an etcd path. If s looks like service.staging.containerdns.local.,
+// the resulting key will be /containerdns/local/containerdns/staging/service .
 func DnsPath(s string) string {
 	l := dns.SplitDomainName(s)
 	for i, j := 0, len(l)-1; i < j; i, j = i+1, j-1 {
@@ -110,7 +110,7 @@ func DnsPath(s string) string {
 // Domain is the opposite of Path.
 func DnsDomain(s string) string {
 	l := strings.Split(s, "/")
-	// start with 1, to strip /skydns
+	// start with 1, to strip /containerdns
 	for i, j := 1, len(l)-1; i < j; i, j = i+1, j-1 {
 		l[i], l[j] = l[j], l[i]
 	}
@@ -152,7 +152,7 @@ func (s *server) getSvcCnameName(key string) string {
 		keys[i], keys[j] = keys[j], keys[i]
 	}
 	domainKey := strings.Join(keys[1:], ".")
-	// ignore the head skydns.
+	// ignore the head containerdns.
 	return s.getSvcDomainSkipName(domainKey[:len(domainKey)-len(DnsPathPrefix)-1])
 	//return domainKey[:len(domainKey)-len(DnsPathPrefix)-1]
 }

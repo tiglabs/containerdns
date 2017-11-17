@@ -6,7 +6,7 @@ import (
     "strings"
     "encoding/json"
     "github.com/golang/glog"
-    "github.com/ipdcode/skydns/utils/etcdv3"
+    "github.com/tigcode/containerdns/utils/etcdv3"
     "errors"
     "sync"
 )

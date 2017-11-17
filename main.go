@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The skydns Authors. All rights reserved.
+// Copyright (c) 2017 The containerdns Authors. All rights reserved.
 
 package main
 
@@ -19,8 +19,8 @@ import (
 	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/golang/glog"
-	backendetcdCached "github.com/ipdcode/skydns/backends/etcd-cached"
-	server "github.com/ipdcode/skydns/dns-server"
+	backendetcdCached "github.com/tigcode/containerdns/backends/etcd-cached"
+	server "github.com/tigcode/containerdns/dns-server"
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
 	"net"
@@ -104,10 +104,10 @@ func configSetDefaults(config *ConfigOps)  {
 		config.Dns.SkydnsAddr = "127.0.0.1:53"
 	}
 	if config.Dns.SkydnsDomains == "" {
-		config.Dns.SkydnsDomains  = "skydns.local."
+		config.Dns.SkydnsDomains  = "containerdns.local."
 	}
 	if config.Dns.IpMonitorPath ==""{
-		config.Dns.IpMonitorPath = "/skydns/monitor/status/"
+		config.Dns.IpMonitorPath = "/containerdns/monitor/status/"
 	}
 
 	if config.Dns.CacheSize  < 100000 {
@@ -121,7 +121,7 @@ func configSetDefaults(config *ConfigOps)  {
 }
 
 func init() {
-	flag.StringVar(&configFile, "config-file", "/etc/skydns/skydns.conf", "read config from the file")
+	flag.StringVar(&configFile, "config-file", "/etc/containerdns/containerdns.conf", "read config from the file")
 	flag.BoolVar(&version, "version", false, "Print version information and quit")
 	flag.Parse()
 	var e error
@@ -189,10 +189,13 @@ func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 	return cli, nil
 }
 
+
+var VERSION string
+
 func main() {
 	flag.Parse()
 	if version {
-		s := server.Version + ": "+ C.GoString(C.build_time())
+		s := server.Version + ": "+ VERSION
 		fmt.Printf("%s\n", s)
 		return
 	}
@@ -204,7 +207,7 @@ func main() {
 
 	clientv3P, err := newEtcdV3Client(machines)
 	if err != nil {
-		glog.Fatalf("skydns:newEtcdClient: %s", err)
+		glog.Fatalf("containerdns:newEtcdClient: %s", err)
 	}
 	clientv3 = *clientv3P
 
@@ -217,13 +220,13 @@ func main() {
 			dnsDomains = append(dnsDomains, domain)
 		}
 	} else {
-		glog.Fatalf("skydns: config domain is nil \n")
+		glog.Fatalf("containerdns: config domain is nil \n")
 	}
 	var forwardNameServers []string
 	if gConfig.Dns.Nameservers != "" {
 		for _, hostPort := range strings.Split(gConfig.Dns.Nameservers, ",") {
 			if err := checkHostPort(hostPort); err != nil {
-				glog.Fatalf("skydns: nameserver is invalid: %s", err)
+				glog.Fatalf("containerdns: nameserver is invalid: %s", err)
 			}
 			forwardNameServers = append(forwardNameServers, hostPort)
 		}
@@ -243,7 +246,7 @@ func main() {
 
 	if gConfig.Dns.InDomainServers != "" {
 		for _, item := range strings.Split(gConfig.Dns.InDomainServers, "%") {
-			// item :   a.skydns.local->8.8.8.8:53,8.8.4.4:53
+			// item :   a.containerdns.local->8.8.8.8:53,8.8.4.4:53
 			val := strings.Split(item, "@")
 			if len(val) != 2 {
 				glog.Fatalf("subDomainServers is invalid: %s", item)
@@ -255,7 +258,7 @@ func main() {
 
 			for _, hostPort := range strings.Split(val[1], ",") {
 				if err := checkHostPort(hostPort); err != nil {
-					glog.Fatalf("skydns: nameserver is invalid: %s", err)
+					glog.Fatalf("containerdns: nameserver is invalid: %s", err)
 				}
 				subDomainServers[subDomian] = append(subDomainServers[subDomian], hostPort)
 			}
@@ -268,11 +271,11 @@ func main() {
 	}
 
 	if err := checkHostPort(gConfig.Dns.SkydnsAddr); err != nil {
-		glog.Fatalf("skydns: addr is invalid: %s", err)
+		glog.Fatalf("containerdns: addr is invalid: %s", err)
 	}
 
 	if gConfig.Fun.IpHold && gConfig.Fun.RandomOne {
-		glog.Fatalf("skydns: ipHold and radom-one you must chose one or neither, check config file !! \n")
+		glog.Fatalf("containerdns: ipHold and radom-one you must chose one or neither, check config file !! \n")
 	}
 
 	var ctx = context.TODO()

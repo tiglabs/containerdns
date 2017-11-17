@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The skydns Authors. All rights reserved.
+// Copyright (c) 2017 The containerdns Authors. All rights reserved.
 // Use of this source code is governed by The MIT License (MIT) that can be
 // found in the LICENSE file.
 
@@ -258,19 +258,19 @@ func (s *server) Statistics(stAddr string, auth string) {
 		glog.Fatalf("statics the addr is used:%s\n", stAddr)
 	}
 	r := mux.NewRouter()
-	r.HandleFunc("/skydns/stats", s.statsList).Methods("GET")
-	r.HandleFunc("/skydns/stats/top/{topN}", s.statsTopN).Methods("GET")
-	r.HandleFunc("/skydns/stats/{domain}", s.statsShowCache).Methods("GET")
+	r.HandleFunc("/containerdns/stats", s.statsList).Methods("GET")
+	r.HandleFunc("/containerdns/stats/top/{topN}", s.statsTopN).Methods("GET")
+	r.HandleFunc("/containerdns/stats/{domain}", s.statsShowCache).Methods("GET")
 
-	r.HandleFunc("/skydns/domain/{domain}", s.domainShowCache).Methods("GET")
-	r.HandleFunc("/skydns/domain/{domain}", s.domainDeleteCache).Methods("DELETE")
+	r.HandleFunc("/containerdns/domain/{domain}", s.domainShowCache).Methods("GET")
+	r.HandleFunc("/containerdns/domain/{domain}", s.domainDeleteCache).Methods("DELETE")
 
-	r.HandleFunc("/skydns/domainL1/{domain}", s.domainShowL1Cache).Methods("GET")
-	r.HandleFunc("/skydns/domainL1/{domain}", s.domainDeleteL1Cache).Methods("DELETE")
-	r.HandleFunc("/skydns/domainL1/{domain}", s.domainPostL1Cache).Methods("POST")
+	r.HandleFunc("/containerdns/domainL1/{domain}", s.domainShowL1Cache).Methods("GET")
+	r.HandleFunc("/containerdns/domainL1/{domain}", s.domainDeleteL1Cache).Methods("DELETE")
+	r.HandleFunc("/containerdns/domainL1/{domain}", s.domainPostL1Cache).Methods("POST")
 
-	r.HandleFunc("/skydns/master", s.ConfigList).Methods("GET")
-	r.HandleFunc("/skydns/master", s.ConfigSet).Methods("POST")
+	r.HandleFunc("/containerdns/master", s.ConfigList).Methods("GET")
+	r.HandleFunc("/containerdns/master", s.ConfigSet).Methods("POST")
 
 	http.HandleFunc("/", basicAuth(r))
 	glog.Infof("statistics enabled on :%s", stAddr)

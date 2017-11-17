@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The skydns Authors. All rights reserved.
+// Copyright (c) 2017 The containerdns Authors. All rights reserved.
 // Use of this source code is governed by The MIT License (MIT) that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import (
 	"hash/fnv"
 	"sync"
 	"time"
-	"github.com/ipdcode/skydns/queue"
+	"github.com/tigcode/containerdns/queue"
 	"github.com/golang/glog"
 	"github.com/miekg/dns"
 )
@@ -255,7 +255,7 @@ func (c *Cache) DeleteCacheDnsDomain(domain string, tcp bool) bool {
 // the key in cache is diff from domain
 func (c *Cache) keyExtendTypeA(name string, dnssec, tcp bool) string {
 	h := sha1.New()
-	t := []byte(name) // del skydns test.default.skydns.local.skydns. -->test.default.skydns.local. 6: sizeof(skydns.)
+	t := []byte(name) // del containerdns test.default.containerdns.local.containerdns. -->test.default.containerdns.local. 6: sizeof(containerdns.)
 	i := append(t[:len(t)-6], keyPack(dns.TypeA)...)
 	if dnssec {
 		i = append(i, byte(255))

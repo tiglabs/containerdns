@@ -11,11 +11,11 @@ import (
     "github.com/golang/glog"
     "os"
     "gopkg.in/gcfg.v1"
-    "github.com/ipdcode/skydns/utils/ping"
-    "github.com/ipdcode/skydns/utils/etcdv3"
+    "github.com/tigcode/containerdns/utils/ping"
+    "github.com/tigcode/containerdns/utils/etcdv3"
     "strconv"
-    "github.com/ipdcode/skydns/utils/logs"
-    "github.com/ipdcode/skydns/utils/alert-mail"
+    "github.com/tigcode/containerdns/utils/logs"
+    "github.com/tigcode/containerdns/utils/alert-mail"
     "sync"
 )
 
@@ -114,7 +114,7 @@ const (
 )
 
 func init() {
-    flag.StringVar(&configfile, "config-file", "/etc/skydns/skydns-scanner.conf", "read config from the file")
+    flag.StringVar(&configfile, "config-file", "/etc/containerdns/containerdns-scanner.conf", "read config from the file")
     flag.Parse()
     var e error; if config, e = readConfig(configfile); e != nil {
         glog.Fatal("Read config file error, due to", e.Error())
@@ -503,10 +503,10 @@ func GetAgentPath() string {
 
 func main() {
     if config.General.Core <= 0 {
-        glog.V(0).Infoln("Starting skydns-scanner-agent with", runtime.NumCPU(), "CPUs")
+        glog.V(0).Infoln("Starting containerdns-scanner-agent with", runtime.NumCPU(), "CPUs")
         runtime.GOMAXPROCS(runtime.NumCPU())
     } else {
-        glog.V(0).Infoln("Starting skydns-scanner-agent with", config.General.Core, "CPUs")
+        glog.V(0).Infoln("Starting containerdns-scanner-agent with", config.General.Core, "CPUs")
         runtime.GOMAXPROCS(config.General.Core)
     }
 

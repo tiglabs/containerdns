@@ -23,7 +23,7 @@ func (s *server) GetDomainSize() int {
 }
 
 func (s *server) GetEtcdCachedRecordsAfterStart(domain string) int64 {
-	// get records form /skydns/local/skydns/
+	// get records form /containerdns/local/containerdns/
 	glog.Infof("get etcd revision start \n")
 	records, revision, err := s.backend.Get(domain)
 	if err != nil {
@@ -218,7 +218,7 @@ func (s *server) syncCheckCachedRecords (recordCaches map[string][]ServiceRecord
 	s.rcache.SyncCheckCachedRecords(mAnswers)
 }
 func (s *server) syncGetEtcdCachedRecords()(map[string][]ServiceRecord, map[string][]string){
-	// get records form /skydns/local/skydns/
+	// get records form /containerdns/local/containerdns/
 	recordCaches := make(map[string][]ServiceRecord)
 	recordCnameMapTypeA := make(map[string][]string)
 	for _,domain := range(s.dnsDomains){
