@@ -21,11 +21,11 @@ then the user access the domain later, the user will get the same service ip.
 ## Setup / Install
 
 Then get and compile ContainerDNS:
-
+```
     git clone github.com/tigcode/containerdns
     cd $GOPATH/src/github.com/tigcode/containerdns
     make
-
+```
 
 ## Configuration
 
