@@ -1374,7 +1374,7 @@ func kubeapiRegister(client *etcdv3.EtcdV3){
 var VERSION string
 func main() {
 	if version {
-		fmt.Printf("%s\n", SkydnsKubeApiVersion+ ": " + VERSION
+		fmt.Printf("%s\n", SkydnsKubeApiVersion+ ": " + VERSION）
 		return
 	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
