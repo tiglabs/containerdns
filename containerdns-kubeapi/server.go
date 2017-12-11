@@ -89,6 +89,7 @@ type Kube2DNSOps struct {
 	KubeDomain           string `gcfg:"kube-domain"`
 	PodEnable            bool   `gcfg:"pod-enable"`
 	KubeEnable           bool   `gcfg:"kube-enable"`
+	SvcIpSource          string `gcfg:"svc-ip-source"`
 	KubeConfigFile       string   `gcfg:"kube-config-file"`
 }
 type DNSApiOps struct {
@@ -413,21 +414,37 @@ func (ks *kube2skydns) generateOneRecordForPortalService(subdomain string, ip st
 	return nil
 }
 func (ks *kube2skydns) generateRecordsForPortalService(subdomain string, service *kapi.Service) error {
-
-	for _, ip := range service.Spec.ExternalIPs {
-		ks.generateOneRecordForPortalService(subdomain, ip, service)
+	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
+		ks.generateOneRecordForPortalService(subdomain, service.Spec.ClusterIP, service)
+	}else{
+		for _, ip := range service.Spec.ExternalIPs {
+			ks.generateOneRecordForPortalService(subdomain, ip, service)
+		}
 	}
 	return nil
 }
 
 func (ks *kube2skydns) IsServiceVIPSet(service *kapi.Service) bool {
-	if len(service.Spec.ExternalIPs) == 0 || service.Spec.ExternalIPs[0] == "" {
-		return false
+	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
+		if service.Spec.ClusterIP == "" {
+			return false
+		}
+	}else{
+		if len(service.Spec.ExternalIPs) == 0 || service.Spec.ExternalIPs[0] == "" {
+			return false
+		}
 	}
 	return true
 }
 
 func (ks *kube2skydns) IsServiceVIPDiff(oldsvc *kapi.Service, newsvc *kapi.Service) bool {
+	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
+		if oldsvc.Spec.ClusterIP != newsvc.Spec.ClusterIP{
+			return true
+		}
+		return false
+	}
+	// external ips
 	i := len(oldsvc.Spec.ExternalIPs)
 	j := len(newsvc.Spec.ExternalIPs)
 	if i != j {
@@ -587,12 +604,20 @@ func (ks *kube2skydns) removeService(obj interface{}) {
 		if err != nil {
 			glog.Infof("removeService err: %s", err.Error())
 		}
-		for _, ip := range s.Spec.ExternalIPs {
-			err = ks.deleteIpMonitorRecord(ip,skydnsmsg.DnsPath(name))
+		if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
+			err = ks.deleteIpMonitorRecord(s.Spec.ClusterIP,skydnsmsg.DnsPath(name))
 			if err != nil {
 				glog.Infof("deleteIpMonitorRecord err: %s", err.Error())
 			}
+		}else{
+			for _, ip := range s.Spec.ExternalIPs {
+				err = ks.deleteIpMonitorRecord(ip,skydnsmsg.DnsPath(name))
+				if err != nil {
+					glog.Infof("deleteIpMonitorRecord err: %s", err.Error())
+				}
+			}
 		}
+
 
 	}
 }
@@ -603,7 +628,8 @@ func (ks *kube2skydns) updateService(oldObj, newObj interface{}) {
 	if ok1 && ok2 {
 		// name or namespace or ip change
 		if oldsvc.Name != newsvc.Name || oldsvc.Namespace != newsvc.Namespace || ks.IsServiceVIPDiff(oldsvc, newsvc) {
-			glog.V(2).Infof("#####  updateService  new =%s  old: =%s \n", newsvc.Spec.ExternalIPs,oldsvc.Spec.ExternalIPs)
+			glog.V(2).Infof("#####  updateService  new-ExternalIPs =%s  old-ExternalIPs: =%s new-ClusterIP =%s  old-ClusterIP: =%s  \n",
+				newsvc.Spec.ExternalIPs, oldsvc.Spec.ExternalIPs,newsvc.Spec.ClusterIP, oldsvc.Spec.ClusterIP)
 			ks.removeService(oldObj)
 			ks.newService(newObj)
 			return
@@ -892,7 +918,15 @@ func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]stri
 				glog.V(2).Infof("ignore the svc for cluster LB VIP is nil : %s", s.Name)
 				continue
 			}
-			for _, ip := range s.Spec.ExternalIPs {
+			var ips []string
+			if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
+				ips = append(ips,s.Spec.ClusterIP)
+
+			}else{
+				ips = s.Spec.ExternalIPs[:]
+			}
+
+			for _, ip := range ips {
 				b, err := json.Marshal(getSkydnsMsg(ip, 0, "A",serviceSubdomain))
 				if err != nil {
 					continue
@@ -989,7 +1023,6 @@ func (ks *kube2skydns) kubeLoopNodes(choose string,kv []*mvccpb.KeyValue, sx map
 }
 func (ks *kube2skydns) getServicesFromSkydns(name string,choose string, sx map[string]string, hosts map[string][]string) error {
 	subdomain := buildDNSNameString(name)
-
 	r, err := ks.etcdClient.Get(skydnsmsg.DnsPath(subdomain), true)
 	if err != nil {
 		return err
