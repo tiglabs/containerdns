@@ -10,7 +10,7 @@ import (
 	"hash/fnv"
 	"sync"
 	"time"
-	"github.com/tigcode/containerdns/queue"
+	"github.com/tiglabs/containerdns/queue"
 	"github.com/golang/glog"
 	"github.com/miekg/dns"
 )

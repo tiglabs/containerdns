@@ -6,7 +6,7 @@ import (
 	"errors"
 	"encoding/json"
 	etcdv3 "github.com/coreos/etcd/clientv3"
-	dnsServer "github.com/tigcode/containerdns/dns-server"
+	dnsServer "github.com/tiglabs/containerdns/dns-server"
 	"golang.org/x/net/context"
 	"time"
 	"github.com/coreos/etcd/mvcc/mvccpb"

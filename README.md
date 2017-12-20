@@ -16,23 +16,23 @@ then the user access the domain later, the user will get the same service ip.
 * `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
 * `etcd`: used to store DNS information, etcd v3 api is used.
 
-## Feature：
+## Feature:
 * a full cached DNS records
 * backend ip automatic removed when it not avaliable
 * support multiple domain suffix 
 * better performance and less jitter
 ## Design Architecture
-  ![image](https://github.com/tigcode/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
+  ![image](https://github.com/tiglabs/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
 
 ## Setup / Install
 
 Then get and compile ContainerDNS:
 
 ```shell
-    mkdir -p $GOPATH/src/github.com/tigcode
-    cd $GOPATH/src/github.com/tigcode
-    git clone https://github.com/tigcode/containerdns
-    cd $GOPATH/src/github.com/tigcode/containerdns
+    mkdir -p $GOPATH/src/github.com/tiglabs
+    cd $GOPATH/src/github.com/tiglabs
+    git clone https://github.com/tiglabs/containerdns
+    cd $GOPATH/src/github.com/tiglabs/containerdns
     make
 ```
 
@@ -245,7 +245,7 @@ the config file like this:
 ```
 
 ### Test result
-   ![image](https://github.com/tigcode/containerdns/blob/master/images/DNS_performance.png)
+   ![image](https://github.com/tiglabs/containerdns/blob/master/images/DNS_performance.png)
 
 ## Future
 

@@ -32,9 +32,9 @@ clean:
 vendor: glide.yaml
 	docker run --rm \
         -v ${HOME}/.glide:/root/.glide:rw \
-        -v ${PWD}:/go/src/github.com/tigcode/containerdns:rw \
+        -v ${PWD}:/go/src/github.com/tiglabs/containerdns:rw \
         --entrypoint /bin/sh $(GO_CONTAINER_NAME) -e -c ' \
-        cd /go/src/github.com/tigcode/containerdns && \
+        cd /go/src/github.com/tiglabs/containerdns && \
         glide install -strip-vendor && \
         chown $(shell id -u):$(shell id -u) -R vendor'
 
