@@ -11,7 +11,7 @@ import:
 - package: github.com/gorilla/mux
   version: v1.5.0
 - package: github.com/miekg/dns
-- package: github.com/tigcode/containerdns
+- package: github.com/tiglabs/containerdns
   subpackages:
   - backends/etcd-cached
   - dns-schedule/base
