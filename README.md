@@ -252,6 +252,6 @@ the config file like this:
 ### improve the performance of UDP packets (DNS use UDP)
 ```
     Help ContainerDNS (DNS) services improve throughput performace with DPDK technology.
-    The next generation of DNS(called KDNS) has been completed, and the performance reaches 1000W QPS. 
-    Of course, the source code has be opened. https://github.com/tiglabs/containerdns-c
+    The next generation of DNS(called containerdns-c) has been completed, and the performance reaches 1000W QPS. 
+    Of course, the source code has be opened. https://github.com/tiglabs/containerdns-c.
 ```
