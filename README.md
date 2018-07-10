@@ -253,5 +253,5 @@ the config file like this:
 ```
     Help ContainerDNS (DNS) services improve throughput performace with DPDK technology.
     The next generation of DNS(called KDNS) has been completed, and the performance reaches 1000W QPS. 
-    Of course, the source code has be opened.https://github.com/tiglabs/containerdns-c
+    Of course, the source code has be opened. https://github.com/tiglabs/containerdns-c
 ```
