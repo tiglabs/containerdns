@@ -1,4 +1,7 @@
-// Copyright (c) 2017 The containerdns Authors. All rights reserved.
+// Copyright (c) 2014 The SkyDNS Authors.
+// Copyright (c) 2017 The containerdns Authors.
+// Use of this source code is governed by The MIT License (MIT) that can be
+// found in the LICENSE file.
 
 package etcdCached
 
