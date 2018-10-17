@@ -1,0 +1,21 @@
+package: .
+import:
+- package: github.com/coreos/etcd
+  version: v3.2.7
+  subpackages:
+  - clientv3
+  - mvcc/mvccpb
+  - pkg/transport
+- package: github.com/golang/glog
+- package: github.com/miekg/dns
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: gopkg.in/yaml.v2
+- package: golang.org/x/crypto
+  version: release-branch.go1.11
+  subpackages:
+  - ed25519
+- package: golang.org/x/text
+  subpackages:
+  - secure
