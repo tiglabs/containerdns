@@ -118,19 +118,6 @@ static void *dns_tcp_process(void *arg) {
     int sock_descriptor,temp_sock_descriptor,address_size;  
     char buf[16384]; 
 
-
-    memset(&kdns_tcp,0,sizeof(kdns_tcp));
-
-    if (( kdns_tcp.db = domain_store_open()) == NULL) {
-        log_msg(LOG_ERR,"unable to open the database \n");
-        exit(-1);
-    } 
-
-    domain_store_zones_check_create( &kdns_tcp,g_dns_cfg->comm.zones);
-
-    kdns_zones_soa_create( kdns_tcp.db,g_dns_cfg->comm.zones);
-
-
     query_tcp = query_create();
     
     sleep(30);
@@ -151,7 +138,6 @@ static void *dns_tcp_process(void *arg) {
         exit(1);  
     }  
     printf("Accpting connections...\n");  
-
 
     while(1)  
     {  
@@ -213,6 +199,11 @@ static void *dns_tcp_process(void *arg) {
 }  
 
 int dns_tcp_process_init(char *ip){
+    memset(&kdns_tcp,0,sizeof(kdns_tcp));
+    if (dnsdata_prepare(&kdns_tcp) != 0) {
+        log_msg(LOG_ERR,"server preparation failed,could not be started");
+        return -1;
+    }
 
     pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
     pthread_create(thread_cache_expired, NULL, dns_tcp_process, (void*)ip);
