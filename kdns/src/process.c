@@ -197,7 +197,7 @@ static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *co
     conf->stats.pkts_icmp ++;
     
     eth_h = rte_pktmbuf_mtod(pkt, struct ether_hdr *);
-    uint16_t eth_type = rte_cpu_to_be_16(eth_h->ether_type);
+    uint16_t eth_type = rte_be_to_cpu_16(eth_h->ether_type);
     /* Reply to ARP requests   // no use*/
 	if (eth_type == ETHER_TYPE_ARP){
 
