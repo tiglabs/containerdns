@@ -440,6 +440,24 @@ domain_find_any_rrset(domain_type* domain, zone_type* zone)
 	return NULL;
 }
 
+domain_type *
+domain_wildcard_child(domain_type* domain)
+{
+	domain_type* wildcard_child;
+
+	assert(domain);
+	assert(domain->wildcard_child_closest_match);
+
+	wildcard_child = domain->wildcard_child_closest_match;
+	if (wildcard_child != domain
+	    && label_is_wildcard(domain_name_get(domain_dname(wildcard_child))))
+	{
+		return wildcard_child;
+	} else {
+		return NULL;
+	}
+}
+
 zone_type *
 domain_find_zone(domain_store_type* db, domain_type* domain)
 {
