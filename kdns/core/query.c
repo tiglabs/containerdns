@@ -76,7 +76,7 @@ query_create(void)
 {
 	kdns_query_st *query = (kdns_query_st *) xalloc_zero( sizeof(kdns_query_st));
 	query->packet = buffer_create( QIOBUFSZ);
-    query->qname =(domain_name_st *) xalloc_zero(sizeof(domain_name_st)+ MAXDOMAINLEN);
+    query->qname =(domain_name_st *) xalloc_zero(sizeof(domain_name_st)+ MAXDOMAINLEN * 2);
 	return query;
 }
 
@@ -84,7 +84,7 @@ void
 query_reset(kdns_query_st *q )
 {
     if (q->qname != NULL){
-        memset(q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN);
+        memset(q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN * 2);
     }   
     buffer_clear(q->packet);
     q->qtype = 0;
