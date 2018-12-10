@@ -27,7 +27,7 @@ typedef enum query_state {
 /* Query as we pass it around */
 
 typedef struct query {
- 
+	domain_type *wildcard_match;
 	buffer_st *packet;
 	const domain_name_st *qname;
 	uint16_t qtype;

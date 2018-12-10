@@ -83,6 +83,10 @@ query_create(void)
 void
 query_reset(kdns_query_st *q )
 {
+    if (q->wildcard_match != NULL) {
+        free(q->wildcard_match);
+        q->wildcard_match = NULL;
+    }
     if (q->qname != NULL){
         memset(q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN * 2);
     }   
@@ -134,8 +138,30 @@ add_additional_rrsets(struct query *query, kdns_answer_st *answer,
 	for (i = 0; i < master_rrset->rr_count; ++i) {
 		int j;
 		domain_type *additional = rdata_atom_domain(master_rrset->rrs[i].rdatas[rdata_index]);
+		domain_type *match = additional;
 
 		assert(additional);
+
+		/*
+		 * Check to see if we need to generate the dependent
+		 * based on a wildcard domain.
+		 */
+		while (!match->is_existing) {
+			match = match->parent;
+		}
+		if (additional != match && domain_wildcard_child(match)) {
+			domain_type *wildcard_child = domain_wildcard_child(match);
+			query->wildcard_match = (domain_type *) xalloc(sizeof(domain_type));
+			domain_type *temp = query->wildcard_match;
+			temp->rnode = NULL;
+			temp->dname = additional->dname;
+			temp->parent = match;
+			temp->wildcard_child_closest_match = temp;
+			temp->rrsets = wildcard_child->rrsets;
+			temp->compressed_offset = DNS_HEAD_SIZE;
+			temp->is_existing = wildcard_child->is_existing;
+			additional = temp;
+		}
 
 		for (j = 0; types[j].rr_type != 0; ++j) {
 			rrset_type *rrset = domain_find_rrset(
@@ -250,7 +276,27 @@ answer_authoritative(struct kdns   * kdns,
 	domain_type *original = closest_match;
 	if (exact) {
 		match = closest_match;
-	}  else {
+	} else if (domain_wildcard_child(closest_encloser)) {
+		/* Generate the domain from the wildcard.  */
+		domain_type *wildcard_child = domain_wildcard_child(closest_encloser);
+		q->wildcard_match = (domain_type *) xalloc(sizeof(domain_type));
+		match = q->wildcard_match;
+		match->rnode = NULL;
+		match->dname = wildcard_child->dname;
+		match->parent = closest_encloser;
+		match->wildcard_child_closest_match = match;
+		match->rrsets = wildcard_child->rrsets;
+		match->compressed_offset = DNS_HEAD_SIZE;
+		match->is_existing = wildcard_child->is_existing;
+
+		/*
+		 * Remember the original domain in case a Wildcard No
+		 * Data (3.1.3.4) response needs to be generated.  In
+		 * this particular case the wildcard IS NOT
+		 * expanded.
+		 */
+		original = wildcard_child;
+	} else {
 		match = NULL;
 	}
 
@@ -310,22 +356,36 @@ static void query_compressed_table_clear(struct query *q){
     q->compressed_count = 0;    
 }
 
+static void
+query_compressed_table_add(struct query *q, domain_type *domain, uint16_t offset)
+{
+	while (domain->parent) {
+		domain->compressed_offset = offset;
+		q->compressed_dnames[q->compressed_count] = domain;
+		q->compressed_count++;
+
+		offset += label_length(domain_name_get(domain_dname(domain))) + 1;
+		domain = domain->parent;
+	}
+}
 
 static void
 query_response(struct kdns * kdns, struct query *q)
 {
 	domain_type *closest_match;
 	domain_type *closest_encloser;
+	int exact;
+	uint16_t offset;
 	kdns_answer_st answer ={0};
 
-	int exact = domain_store_lookup( kdns->db, q->qname, &closest_match, &closest_encloser);
-
+	exact = domain_store_lookup( kdns->db, q->qname, &closest_match, &closest_encloser);
 	answer_lookup_zone( kdns, q, &answer, exact, closest_match,closest_encloser);
-
-    if (GET_RCODE(q->packet) != RCODE_REFUSE) {
-        encode_answer(q, &answer);
-        query_compressed_table_clear(q);
-    }
+	if (GET_RCODE(q->packet) != RCODE_REFUSE) {
+		offset = domain_name_label_offsets(q->qname)[domain_dname(closest_encloser)->label_count - 1] + DNS_HEAD_SIZE;
+		query_compressed_table_add(q, closest_encloser, offset);
+		encode_answer(q, &answer);
+		query_compressed_table_clear(q);
+	}
 }
 
 void
