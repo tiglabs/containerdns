@@ -93,20 +93,20 @@ static int  do_domaindata_delete(struct  domain_store *db,zone_type * zo,const d
                 rrset_zero_nonexist_check(domain, NULL);
                 domain_table_deldomain(db, domain);
              }else{
-                 rr_type* rrs_orig = rrset->rrs;
-    			add_rdata_to_recyclebin( &rrset->rrs[rrnum]);
-    			if(rrnum < rrset->rr_count-1)
-    				rrset->rrs[rrnum] = rrset->rrs[rrset->rr_count-1];
-    			memset(&rrset->rrs[rrset->rr_count-1], 0, sizeof(rr_type));
-    			/* realloc the rrs array one smaller */
+                rr_type* rrs_orig = rrset->rrs;
+                add_rdata_to_recyclebin( &rrset->rrs[rrnum]);
+                if(rrnum < rrset->rr_count-1)
+                    rrset->rrs[rrnum] = rrset->rrs[rrset->rr_count-1];
+                memset(&rrset->rrs[rrset->rr_count-1], 0, sizeof(rr_type));
+
+                /* realloc the rrs array one smaller */
                 rrset->rrs = xalloc_array_zero(rrset->rr_count-1,  sizeof(rr_type));
+                if(!rrset->rrs) {
+                    log_msg(LOG_ERR,"out of memory, %s:%d", __FILE__, __LINE__);
+                    exit(1);
+                }
                 memcpy(rrset->rrs,rrs_orig,(rrset->rr_count-1) * sizeof(rr_type));
-    			if(!rrset->rrs) {
-    				log_msg(LOG_ERR,"out of memory, %s:%d", __FILE__, __LINE__);
-    				exit(1);
-    			}
                 free(rrs_orig);
-                
                 rrset->rr_count --;  
              }          
         }
