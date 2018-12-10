@@ -5,7 +5,7 @@
 #include "zone.h"
 #include "kdns.h"
 
-#define DB_MAX_NAME_LEN  128
+#define DB_MAX_NAME_LEN  255
 
 
 enum db_action {
