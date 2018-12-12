@@ -16,6 +16,7 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <string.h>
+#include <rte_per_lcore.h>
 #include "dns.h"
 #include "zone.h"
 
@@ -392,7 +393,9 @@ domain_name_label_match_count(const domain_name_st *left, const domain_name_st *
 const char *
 domain_name_to_string(const domain_name_st *dname, const domain_name_st *origin)
 {
-    char buf[MAXDOMAINLEN * 5] ={0};
+	static RTE_DEFINE_PER_LCORE(char[MAXDOMAINLEN * 5], DOMAIN_NAME_STRING_BUF);
+	char *buf = RTE_PER_LCORE(DOMAIN_NAME_STRING_BUF);
+	memset(buf, 0, MAXDOMAINLEN * 5);
 	size_t i;
 	size_t labels_to_convert = dname->label_count - 1;
 	int absolute = 1;

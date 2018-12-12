@@ -57,7 +57,7 @@ typedef enum rr_section {
 #define TYPE_A		1	/* a host address */
 #define TYPE_CNAME	5	/* the canonical name for an alias */
 #define TYPE_SOA	6	/* marks the start of a zone of authority */
-#define TYPE_PTR	12	/* pointer records are used to map a network interface (IP) to a host name. */
+#define TYPE_PTR	12	/* a domain name pointer */
 #define TYPE_SRV	33	/* SRV record RFC2782 */
 
 

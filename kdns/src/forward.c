@@ -359,35 +359,19 @@ static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_ad
     return fwd_addrs;
 }
 
-static int dns_do_remote_query(int remote_sock_t, char *buf,ssize_t len,dns_addr_t *id_addr ) {
-
-    remote_sock_t = remote_sock_t;
-    
-    int remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); 
-    struct timeval tv = {2, 0};
-    
-    if (remote_sock == -1) {
+static int dns_do_remote_query(int remote_sock, char *buf, ssize_t len, dns_addr_t *id_addr) {
+    if (-1 == sendto(remote_sock, buf, len, 0, id_addr->addr, id_addr->addrlen)) {
+        log_msg(LOG_ERR,"dns_do_remote_query sendto errno=%d, errinfo=%s\n", errno, strerror(errno));
         return -1;
     }
-    if (setsockopt(remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
-        
-        log_msg(LOG_ERR,"socket option  SO_RCVTIMEO not support\n");  
-        close(remote_sock);
-        return -1;  
-    } 
-     if (-1 == sendto(remote_sock, buf, len, 0,id_addr->addr,id_addr->addrlen)){
-        log_msg(LOG_ERR,"send err\n");
-        close(remote_sock);
-        return -1;
-     }
-     struct sockaddr src_addr;
-     socklen_t src_len = sizeof(struct sockaddr);
+    struct sockaddr src_addr;
+    socklen_t src_len = sizeof(struct sockaddr);
      
-     len = recvfrom(remote_sock, buf, BUF_SIZE, 0, &src_addr, &src_len);
-     if (len <0) {
-         log_msg(LOG_ERR,"recvfrom errno  =%d errinfo =%s\n",errno,strerror(errno));
+    len = recvfrom(remote_sock, buf, BUF_SIZE, 0, &src_addr, &src_len);
+    if (len <0) {
+        log_msg(LOG_ERR,"dns_do_remote_query recvfrom errno=%d, errinfo=%s\n", errno, strerror(errno));
     }
-    close(remote_sock);
+	
     return len;
 }
 
@@ -403,7 +387,7 @@ domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name){
     return default_fwd_addrs;  
 }
 
-static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *doamin) {
+static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
     struct ether_hdr *eth_hdr = NULL;
     struct ipv4_hdr  *ip4_hdr = NULL;
     struct udp_hdr   *udp_hdr = NULL; 
@@ -427,37 +411,39 @@ static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt,uint16_t old_i
     dst_port = udp_hdr->src_port;
 
     // find in cache
-    int status = fwd_cache_lookup(doamin,qtype, buf_data,&data_len,expired_recrds);
+    int status = fwd_cache_lookup(domain, qtype, buf_data, &data_len, expired_recrds);
     // not cached 
-    if (status < 0 ){
-    int len  = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct udp_hdr);
+    if (status < 0) {
+        int len  = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct udp_hdr);
 
-    domain_fwd_addrs * fwd_addrs = find_zone_fwd_addrs(doamin);
-    int i =0;
+        domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
+        int i =0;
         int retfwd =0;
-    for (;i < fwd_addrs->servers_len; i++){
+        for (;i < fwd_addrs->servers_len; i++) {
             retfwd = dns_do_remote_query(socket,buf_data,len,&fwd_addrs->server_addrs[i]);
-            if (retfwd >0){
-            break;
+            if (retfwd > 0) {
+                break;
+            } else {
+                log_msg(LOG_ERR, "Failed to requset %s form %s:%d, trycnt:%d\n", domain,
+                    inet_ntoa(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr),
+                    ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port), i);
+            }
         }
-    }
         // when we get data we del the cache
-        if (retfwd >0 ){
-            if (status == FORWARD_CACHE_DATA_EXPIRED){
-            fwd_cache_del(doamin,qtype);
-        }
-            
-            fwd_cache_insert(doamin, qtype,buf_data, retfwd);
+        if (retfwd > 0) {
+            if (status == FORWARD_CACHE_DATA_EXPIRED) {
+                fwd_cache_del(domain, qtype);
+            }
+
+            fwd_cache_insert(domain, qtype, buf_data, retfwd);
             data_len = retfwd;
-        }else{ // use the last record
-             memcpy(buf_data,expired_recrds,data_len);
+        } else { // use the last record
+            memcpy(buf_data, expired_recrds, data_len);
         }    
-        
     }
 
     
     if (data_len >0) {
-        
         struct ether_hdr pkt_eth_hdr;
         struct ipv4_hdr pkt_ipv4_hdr;
         struct udp_hdr pkt_udp_hdr;

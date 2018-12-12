@@ -157,7 +157,7 @@ zone_type* domain_find_zone(domain_store_type* db, domain_type* domain);
 /* find DNAME rrset in domain->parent or higher and return that domain */
 domain_type * find_domain_name_above(domain_type* domain, zone_type* zone);
 
-
+domain_type* domain_wildcard_child(domain_type* domain);
 domain_type *domain_previous_existing_child(domain_type* domain);
 
 
