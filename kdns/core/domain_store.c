@@ -490,7 +490,7 @@ domain_store_find_zone(domain_store_type* db, const domain_name_st* dname)
 struct  domain_store *domain_store_open (void)
 {
 	domain_store_type* db;
-	db = (domain_store_type *) xalloc (sizeof(struct  domain_store));
+	db = (domain_store_type *)xalloc_zero(sizeof(struct  domain_store));
 	db->domains = domain_table_create();
 	db->zonetree = radix_tree_create();
     return db;
