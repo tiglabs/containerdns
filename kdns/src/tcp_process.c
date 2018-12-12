@@ -28,7 +28,7 @@ extern  struct dns_config *g_dns_cfg;
 extern void domain_store_zones_check_create(struct kdns*  kdns, char *zones);
 
 int tcp_domian_databd_update(struct domin_info_update* update);
-static int dns_handle_tcp_remote(int sndsock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain);
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain);
 
 
 
@@ -43,70 +43,74 @@ int tcp_domian_databd_update(struct domin_info_update* update){
 }
 
 
-static int dns_do_remote_tcp_query(int sock_fd,char *domain, char *snd_buf,ssize_t snd_len,char *rvc_buf,ssize_t rcv_len,dns_addr_t *id_addr ) {
-
-    int connResult = connect(sock_fd, (struct sockaddr *) id_addr->addr, id_addr->addrlen); 
-    if ( -1 == connResult ) { 
-        log_msg(LOG_ERR,"connect error: %s\n",domain);
+static int dns_do_remote_tcp_query(char *snd_buf, ssize_t snd_len, char *rvc_buf, ssize_t rcv_len, dns_addr_t *id_addr) {
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd == -1){      
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query sock errno=%d, errinfo=%s\n", errno, strerror(errno));
         return -1;
+    }
+	
+    struct timeval tv = {2, 0};
+    if (setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query socket option SO_RCVTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(sock_fd);
+        return -1;  
+    } 
+    if (setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {  
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query socket option SO_SNDTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(sock_fd);
+        return -1;  
+    } 
+
+    int connResult = connect(sock_fd, (struct sockaddr *)id_addr->addr, id_addr->addrlen); 
+    if (-1 == connResult) { 
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query connect errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(sock_fd);
+        return -1;  
     } 
 
     int ret = send(sock_fd, snd_buf, snd_len, 0);
     if (ret <= 0){
-        log_msg(LOG_ERR,"send error: %s\n",domain);
-        return ret;
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query send errno=%d, errinfo=%s\n",errno, strerror(errno));
+        close(sock_fd);
+        return -1;  
     }
 
     memset(rvc_buf, 0, rcv_len);
     ret = recv(sock_fd, rvc_buf, rcv_len - 1, 0);
     if (ret <=0){
-        log_msg(LOG_ERR,"recv error: %s\n",domain);
-        return ret;
+        log_msg(LOG_ERR,"dns_do_remote_tcp_query recv errno=%d, errinfo=%s\n",errno, strerror(errno));
+        close(sock_fd);
+        return -1;  
     }
+    close(sock_fd);
     return ret;
 }
 
 
-static int dns_handle_tcp_remote(int sndsock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain){
-
-    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock_fd == -1){      
-        log_msg(LOG_ERR,"dns_handle_tcp_remote sock() error");
-        return -1;
-    }
-    struct timeval tv = {2, 0};
-    
-    if (setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
-        log_msg(LOG_ERR," dns_handle_tcp_remote socket option  SO_RCVTIMEO not support\n");  
-        close(sock_fd);
-        return -1;  
-    } 
-    
-    if (setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {  
-        log_msg(LOG_ERR,"dns_handle_tcp_remote socket option  SO_SNDTIMEO not support\n");  
-          close(sock_fd);
-        return -1;  
-    } 
-
-
-    domain_fwd_addrs * fwd_addrs = find_zone_fwd_addrs(domain);
-    int i =0;
-    int retfwd =0;
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain){
+    int i = 0;
+    int retfwd = 0;
     char recv_buf[16384] = {0};
+    domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
-            retfwd = dns_do_remote_tcp_query(sock_fd,domain,snd_pkt,snd_len,recv_buf,16384,&fwd_addrs->server_addrs[i]);
-            if (retfwd >0){
-            break;
-        }
+		retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, 16384, &fwd_addrs->server_addrs[i]);
+		if (retfwd > 0) {
+			break;
+		} else {
+			log_msg(LOG_ERR, "Failed to requset %s form %s:%d, trycnt:%d\n", domain,
+                    inet_ntoa(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr),
+                    ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port), i);
+		}
     }
-    if (retfwd >0){
-         uint16_t  len = htons(retfwd);
-         memcpy(recv_buf,&len,2);
-         if(send(sndsock,recv_buf,retfwd +2,0) == -1){   
-             log_msg(LOG_ERR," last send error %s\n",domain);
+    if (retfwd > 0){
+         uint16_t len = htons(retfwd);
+         memcpy(recv_buf, &len, 2);
+         if(send(respond_sock,recv_buf,retfwd +2,0) == -1){   
+             log_msg(LOG_ERR,"last send error %s\n", domain);
+             return -1;
          } 
     }  
-    close(sock_fd);
     return 0;   
 }
 
