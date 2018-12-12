@@ -5,7 +5,7 @@
 
 #include <arpa/inet.h>
 
-#define FWD_MAX_DOMAIN_NAME_LEN  128
+#define FWD_MAX_DOMAIN_NAME_LEN  255
 
 typedef struct {
    struct sockaddr *addr;
