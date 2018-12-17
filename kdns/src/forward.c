@@ -438,9 +438,13 @@ static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt, uint16_t old_
             if (retfwd > 0) {
                 break;
             } else {
-                log_msg(LOG_ERR, "Failed to requset %s form %s:%d, trycnt:%d\n", domain,
-                    inet_ntoa(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr),
-                    ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port), i);
+                char ip_src_str[INET_ADDRSTRLEN] = {0};
+                char ip_dst_str[INET_ADDRSTRLEN] = {0};
+                inet_ntop(AF_INET, (struct in_addr *)&ip4_hdr->src_addr, ip_src_str, sizeof(ip_src_str));
+                inet_ntop(AF_INET, &((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));				
+                log_msg(LOG_ERR, "Failed to requset %s to %s:%d, from: %s, trycnt:%d\n", domain,
+                    ip_dst_str, ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port),
+                    ip_src_str, i);
             }
         }
         // when we get data we del the cache

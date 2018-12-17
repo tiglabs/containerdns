@@ -28,7 +28,7 @@ extern  struct dns_config *g_dns_cfg;
 extern void domain_store_zones_check_create(struct kdns*  kdns, char *zones);
 
 int tcp_domian_databd_update(struct domin_info_update* update);
-static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain);
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain, struct sockaddr_in *pin);
 
 
 
@@ -106,41 +106,66 @@ static int dns_do_remote_tcp_query(char *snd_buf, ssize_t snd_len, char *rvc_buf
 }
 
 
-static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain){
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain, struct sockaddr_in *pin) {
     int i = 0;
     int retfwd = 0;
-    char recv_buf[16384] = {0};
+    char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
     tcp_stats.dns_fwd_rcv++;
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
-		retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, 16384, &fwd_addrs->server_addrs[i]);
-		if (retfwd > 0) {
-			break;
-		} else {
-			log_msg(LOG_ERR, "Failed to requset %s form %s:%d, trycnt:%d\n", domain,
-                    inet_ntoa(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr),
-                    ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port), i);
-		}
+        retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, TCP_MAX_MESSAGE_LEN, &fwd_addrs->server_addrs[i]);
+        if (retfwd > 0) {
+            break;
+        } else {
+            char ip_src_str[INET_ADDRSTRLEN] = {0};
+            char ip_dst_str[INET_ADDRSTRLEN] = {0};
+            inet_ntop(AF_INET, &pin->sin_addr, ip_src_str, sizeof(ip_src_str));
+            inet_ntop(AF_INET, &((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
+            log_msg(LOG_ERR, "Failed to requset %s to %s:%d, from: %s, trycnt:%d\n", domain,
+                ip_dst_str, ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port),
+                ip_src_str, i);
+        }
     }
     if (retfwd > 0){
-         uint16_t len = htons(retfwd);
-         memcpy(recv_buf, &len, 2);
-         if(send(respond_sock,recv_buf,retfwd +2,0) == -1){   
-             log_msg(LOG_ERR,"last send error %s\n", domain);
-             return -1;
-         } 
-         tcp_stats.dns_fwd_snd++;
+        uint16_t len = htons(retfwd);
+        memcpy(recv_buf, &len, 2);
+        if(send(respond_sock,recv_buf,retfwd +2,0) == -1){   
+            log_msg(LOG_ERR,"last send error %s\n", domain);
+            return -1;
+        } 
+        tcp_stats.dns_fwd_snd++;
     }  
     return 0;   
 }
 
+static int dns_tcp_recv(int fd, char *buf, int len) {
+    int bytes_transmitted = 0;
+    while (bytes_transmitted < len) {
+        int recv_len = recv(fd, buf + bytes_transmitted, len - bytes_transmitted, 0);
+        if (recv_len == -1) {
+            if (errno == EAGAIN || errno == EINTR) {
+                continue;
+            } else {
+                log_msg(LOG_ERR, "call recv len %d error, ret=%d, errno=%d, errinfo=%s\n",
+                    len, recv_len, errno, strerror(errno));
+                return -1;
+            }
+        } else if (recv_len == 0) {
+            /* EOF */
+            return 0;
+        }
+
+        bytes_transmitted += recv_len;
+    }
+    return bytes_transmitted;
+}
 
 static void *dns_tcp_process(void *arg) {     
           
     struct sockaddr_in sin,pin;
     char *ip  = (char*)arg;
     int sock_descriptor,temp_sock_descriptor,address_size;  
-    char buf[16384]; 
+    char buf[TCP_MAX_MESSAGE_LEN] = {0};
 
     query_tcp = query_create();
     
@@ -151,46 +176,66 @@ static void *dns_tcp_process(void *arg) {
     sin.sin_family = AF_INET; 
     sin.sin_addr.s_addr = inet_addr(ip);;  
     sin.sin_port = htons(53);  
-    if(bind(sock_descriptor,(struct sockaddr *)&sin,sizeof(sin)) == -1)
-    {  
+    if (bind(sock_descriptor,(struct sockaddr *)&sin,sizeof(sin)) == -1) {
         log_msg(LOG_ERR,"call bind err \n");  
         exit(1);  
     }  
-    if(listen(sock_descriptor,100) == -1)
-    {  
+    if (listen(sock_descriptor,100) == -1) {
         log_msg(LOG_ERR,"call listen err \n");  
         exit(1);  
     }  
     printf("Accpting connections...\n");  
 
-    while(1)  
-    {  
-            address_size = sizeof(pin);  
-            temp_sock_descriptor = accept(sock_descriptor,(struct sockaddr *)&pin,&address_size);
-            if (temp_sock_descriptor == -1)
-            {  
-                log_msg(LOG_ERR,"call  accept error\n");  
-                continue;  
-            } 
-            int recv_len = recv(temp_sock_descriptor,buf,16384,0);
-            if(recv_len <= 0)
-            {  
-                 log_msg(LOG_ERR, "call  recv error, ret=%d, errno=%d, errinfo=%s\n", recv_len, errno, strerror(errno));
-                 close(temp_sock_descriptor);
-                 continue;  
-            }  
-            inet_ntop(AF_INET,&pin.sin_addr,host_name,sizeof(host_name));  
-          //  printf("received from client(%s):%d\n",host_name,recv_len);  
+    while (1) {
+        address_size = sizeof(pin);
+        temp_sock_descriptor = accept(sock_descriptor, (struct sockaddr *)&pin, &address_size);
+        if (temp_sock_descriptor == -1) {
+            log_msg(LOG_ERR,"call  accept error\n");
+            continue;
+        }
+        while (1) {
+            int bytes_transmitted = 0;
+            bytes_transmitted = dns_tcp_recv(temp_sock_descriptor, buf, 2);  //recv query len first
+            if (bytes_transmitted != 2) {
+                if (bytes_transmitted < 0) {
+                    log_msg(LOG_ERR, "failed recv len %d from %s\n", 2, inet_ntoa(pin.sin_addr));
+                }
+                close(temp_sock_descriptor);
+                break;
+            }
+
+            /*
+             * Minimum query size is:
+             *
+             *     Size of the header (12)
+             *   + Root domain name   (1)
+             *   + Query class        (2)
+             *   + Query type         (2)
+             */
+            uint16_t tcp_query_len = ntohs(*(uint16_t *)buf);
+            if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t) || tcp_query_len > TCP_MAX_MESSAGE_LEN) {
+                log_msg(LOG_ERR, "tcp query from %s packet size %d illegal, drop\n", inet_ntoa(pin.sin_addr), tcp_query_len);
+                close(temp_sock_descriptor);
+                break;
+            }
+
+            bytes_transmitted = dns_tcp_recv(temp_sock_descriptor, buf + 2, tcp_query_len);
+            if (bytes_transmitted != tcp_query_len) {
+                if (bytes_transmitted < 0) {
+                    log_msg(LOG_ERR, "failed recv len %d from %s\n", tcp_query_len, inet_ntoa(pin.sin_addr));
+                }
+                close(temp_sock_descriptor);
+                break;
+            }
 
             query_reset(query_tcp);
             query_tcp->maxMsgLen = TCP_MAX_MESSAGE_LEN;
-
-            query_tcp->packet->data = (uint8_t *)(buf+2); // skip len
+            query_tcp->packet->data = (uint8_t *)(buf + 2);  //skip len
 
             uint16_t flags_old ;
-            memcpy(&flags_old,query_tcp->packet->data +2 , 2);
+            memcpy(&flags_old, query_tcp->packet->data + 2, 2);
             
-            query_tcp->packet->position += recv_len;
+            query_tcp->packet->position += 2 + tcp_query_len;
             buffer_flip(query_tcp->packet);
             
             query_tcp->sip = *(uint32_t *)&pin.sin_addr;
@@ -200,28 +245,26 @@ static void *dns_tcp_process(void *arg) {
                 buffer_flip(query_tcp->packet);
             }
             
-            if(GET_RCODE(query_tcp->packet) == RCODE_REFUSE ) {
-                   memcpy((buf+2) + 2, &flags_old, 2);  
-                   dns_handle_tcp_remote(temp_sock_descriptor,buf,GET_ID(query_tcp->packet),recv_len,(char *)domain_name_to_string(query_tcp->qname, NULL));
-                   close(temp_sock_descriptor); 
-                  continue;
+            if(GET_RCODE(query_tcp->packet) == RCODE_REFUSE) {
+                memcpy((buf + 2) + 2, &flags_old, 2);
+                dns_handle_tcp_remote(temp_sock_descriptor, buf, GET_ID(query_tcp->packet), 2 + tcp_query_len, (char *)domain_name_to_string(query_tcp->qname, NULL), &pin);
+                continue;
             }
 
             tcp_stats.dns_pkts_rcv++;
-             int retLen = buffer_remaining(query_tcp->packet);
-             if (retLen > 0) {
-                 uint16_t  len = htons(retLen);
-                 memcpy(buf,&len,2);
-                 if(send(temp_sock_descriptor,buf,retLen+2,0) == -1){   
-                        log_msg(LOG_ERR," send error\n");
-                 } 
-                
+            int retLen = buffer_remaining(query_tcp->packet);
+            if (retLen > 0) {
+                uint16_t len = htons(retLen);
+                memcpy(buf, &len, 2);
+                if(send(temp_sock_descriptor, buf, retLen + 2, 0) == -1) {
+                    log_msg(LOG_ERR,"response query %s to %s, send error, errno=%d, errinfo=%s\n",
+                        (char *)domain_name_to_string(query_tcp->qname, NULL), inet_ntoa(pin.sin_addr), errno, strerror(errno));
+                }
                 tcp_stats.dns_pkts_snd++;
-             }
- 
-            close(temp_sock_descriptor);  
-    }   
-}  
+            }
+        }
+    }
+}
 
 int dns_tcp_process_init(char *ip){
     memset(&kdns_tcp,0,sizeof(kdns_tcp));
