@@ -110,7 +110,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id
     int i = 0;
     int retfwd = 0;
     char recv_buf[16384] = {0};
-    tcp_stats.dns_fwd_rcv++
+    tcp_stats.dns_fwd_rcv++;
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
 		retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, 16384, &fwd_addrs->server_addrs[i]);
