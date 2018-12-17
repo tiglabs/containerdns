@@ -84,7 +84,21 @@ static void *thread_fwd_cache_expired_cleanup(void *arg);
 static struct domin_fwd_cache *g_fwd_cache_hash_list[FORWARD_HASH_SIZE + 1 ] ;
 static rte_rwlock_t fwd_cache_list_lock;
 
+struct netif_queue_stats fwd_stats;
 
+void fwd_statsdata_get(struct netif_queue_stats *sta)
+{
+    sta->dns_fwd_rcv = fwd_stats.dns_fwd_rcv;
+    sta->dns_fwd_snd = fwd_stats.dns_fwd_snd;
+
+    return;
+}
+
+void fwd_statsdata_reset()
+{
+    memset(&fwd_stats, 0, sizeof(fwd_stats));
+    return;
+}
 
 static void parse_dns_fwd_zones(char * fwd_addrs) {
     int zone_idx = 1;
@@ -498,8 +512,9 @@ uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len)
 				unlikely(rte_ring_dequeue_bulk(master_fwd_pkt_ex_ring, (void ** )mbufs,
 					pkts_len) != 0))
 			pkts_len = (uint16_t)RTE_MIN(rte_ring_count(master_fwd_pkt_ex_ring),pkts_len);
-   
-   return pkts_len;
+
+    rte_atomic64_add(&fwd_stats.dns_fwd_snd, pkts_len);
+    return pkts_len;
 }
 
 
@@ -518,12 +533,14 @@ static void *thread_fwd_pkt_process(void *socket){
             usleep(10);
             continue;
         }
+
+        rte_atomic64_inc(&fwd_stats.dns_fwd_rcv);
         int  fwd_len = do_dns_handle_remote(*remote_sock,etm->pkt,etm->old_id,etm->qtype,etm->domain_name);
         
         if (unlikely(fwd_len <= 0)){
             log_msg(LOG_ERR,"can not get rte_mbuf from do_dns_handle_remote\n");
             rte_pktmbuf_free(etm->pkt);
-            free(etm); 
+            free(etm);
         }else{
             int ret = rte_ring_mp_enqueue(master_fwd_pkt_ex_ring, (void*)etm->pkt);
             if (ret != 0) {

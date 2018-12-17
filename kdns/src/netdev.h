@@ -31,6 +31,9 @@ struct netif_queue_stats
 
     uint64_t dns_lens_rcv; /* Total lens of  received packets. */
     uint64_t dns_lens_snd; /* Total lens of  transmitted packets. */
+
+    uint16_t dns_fwd_rcv; /* Total number of receive forward packets */
+    uint64_t dns_fwd_snd; /* Total number of send to client forward packets */
        
 } __rte_cache_aligned;
 

@@ -13,8 +13,8 @@
 #include "util.h"
 #include "netdev.h"
 #include "view_update.h"
-
-
+#include "tcp_process.h"
+#include "forward.h"
 
 #define DOMAIN_HASH_SIZE  0x3FFFF
 
@@ -631,7 +631,13 @@ struct json_stats_strings
     char dns_lens_rcv[32]; 
     char dns_lens_snd[32];
     char pkt_dropped[32];
-    char pkt_len_err[32];      
+    char pkt_len_err[32];
+    char tcp_pkts_rcv[32];
+    char tcp_pkts_snd[32];
+    char tcp_fwd_rcv[32];
+    char tcp_fwd_snd[32];
+    char udp_fwd_rcv[32];
+    char udp_fwd_snd[32];
 };
 
 static void* statistics_get( __attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused))char *url,int * len_response)
@@ -639,7 +645,7 @@ static void* statistics_get( __attribute__((unused)) struct connection_info_stru
     struct netif_queue_stats sta ={0};
     netif_statsdata_get(&sta);
 
-    struct json_stats_strings sta_string ={"","","","","","","","","",""};
+    struct json_stats_strings sta_string ={"","","","","","","","","","","","","","","",""};
 
     sprintf(sta_string.domain_num,"%d",domain_num_get());
     sprintf(sta_string.pkts_rcv,"%ld",sta.pkts_rcv);
@@ -652,14 +658,28 @@ static void* statistics_get( __attribute__((unused)) struct connection_info_stru
     sprintf(sta_string.pkts_icmp,"%ld",sta.pkts_icmp);
     sprintf(sta_string.pkt_len_err,"%ld",sta.pkt_len_err);
 
-    
+    memset(&sta, 0, sizeof(sta));
+    tcp_statsdata_get(&sta);
+    sprintf(sta_string.tcp_pkts_rcv, "%ld", sta.dns_pkts_rcv);
+    sprintf(sta_string.tcp_pkts_snd, "%ld", sta.dns_pkts_snd);
+    sprintf(sta_string.tcp_fwd_rcv, "%ld", sta.dns_fwd_rcv);
+    sprintf(sta_string.tcp_fwd_snd, "%ld", sta.dns_fwd_snd);
+
+    memset(&sta, 0, sizeof(sta));
+    fwd_statsdata_get(&sta);
+    sprintf(sta_string.udp_fwd_rcv, "%ld", sta.dns_fwd_rcv);
+    sprintf(sta_string.udp_fwd_snd, "%ld", sta.dns_fwd_snd);
+
     json_t *value = NULL;
     
-    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s}", 
+    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s}",
             "domain_num",sta_string.domain_num, "pkts_rcv",sta_string.pkts_rcv,
             "dns_pkts_rcv",sta_string.dns_pkts_rcv,"dns_pkts_snd",sta_string.dns_pkts_snd,"pkt_dropped",sta_string.pkt_dropped,
             "pkts_2kni",sta_string.pkts_2kni,"pkts_icmp",sta_string.pkts_icmp,"pkt_len_err",sta_string.pkt_len_err,
-            "dns_lens_rcv",sta_string.dns_lens_rcv,"dns_lens_snd",sta_string.dns_lens_snd);
+            "dns_lens_rcv",sta_string.dns_lens_rcv,"dns_lens_snd",sta_string.dns_lens_snd,
+            "tcp_pkts_rcv", sta_string.tcp_pkts_rcv, "tcp_pkts_snd", sta_string.tcp_pkts_snd,
+            "tcp_fwd_rcv", sta_string.tcp_fwd_rcv, "tcp_fwd_snd", sta_string.tcp_fwd_snd,
+            "udp_fwd_rcv", sta_string.udp_fwd_rcv, "udp_fwd_snd", sta_string.udp_fwd_snd);
     
     if (!value){
            char * err = strdup("json_pack err");
@@ -670,19 +690,18 @@ static void* statistics_get( __attribute__((unused)) struct connection_info_stru
     char *str_ret = json_dumps(value, JSON_COMPACT);
     json_decref(value);
     *len_response = strlen(str_ret);
-    return (void* )str_ret;;
+    return (void* )str_ret;
 }
-
 
 static void* statistics_reset( __attribute__((unused)) struct connection_info_struct *con_info,__attribute__((unused))char *url, int * len_response)
 {
     char * post_ok = strdup("OK\n");
     netif_statsdata_reset();
+    tcp_statsdata_reset();
+    fwd_statsdata_reset();
     *len_response = strlen(post_ok);
     return (void* )post_ok;
 }
-
-
 
 void domian_info_exchange_run( int port){
     
