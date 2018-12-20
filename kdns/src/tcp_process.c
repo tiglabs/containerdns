@@ -273,8 +273,9 @@ int dns_tcp_process_init(char *ip){
         return -1;
     }
 
-    pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
-    pthread_create(thread_cache_expired, NULL, dns_tcp_process, (void*)ip);
+    pthread_t *thread_tcp_process = (pthread_t *)  xalloc(sizeof(pthread_t));  
+    pthread_create(thread_tcp_process, NULL, dns_tcp_process, (void*)ip);
+    pthread_setname_np(*thread_tcp_process, "kdns_tcp_proc");
     return 0;
 }
 
