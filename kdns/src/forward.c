@@ -77,7 +77,7 @@ struct rte_ring *fwd_pkt_to_process_ring;
 
 
 static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_addrs);
-static void *thread_fwd_pkt_process(void *socket);
+static void *thread_fwd_pkt_process();
 static void *thread_fwd_cache_expired_cleanup(void *arg);
 
 
@@ -303,18 +303,8 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     /* create a separate thread to send task status as quick as possible */
     int i =0;
     for( ;i< fwd_threads;i++){
-        int * remote_sock =    (int *)  xalloc(sizeof(int));
         pthread_t *thread_id = (pthread_t *)  xalloc(sizeof(pthread_t));  
-        *remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); 
-        struct timeval tv = {2, 0};
-
-        if (setsockopt(*remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
-
-            log_msg(LOG_ERR,"socket option  SO_RCVTIMEO not support\n");  
-            exit(-1);  
-        } 
-
-        pthread_create(thread_id, NULL, thread_fwd_pkt_process, (void*)remote_sock);
+        pthread_create(thread_id, NULL, thread_fwd_pkt_process, NULL);
 
         char tname[16];
         snprintf(tname, sizeof(tname), "kdns_udp_fwd_%d", i);
@@ -378,19 +368,36 @@ static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_ad
     return fwd_addrs;
 }
 
-static int dns_do_remote_query(int remote_sock, char *buf, ssize_t len, dns_addr_t *id_addr) {
-    if (-1 == sendto(remote_sock, buf, len, 0, id_addr->addr, id_addr->addrlen)) {
-        log_msg(LOG_ERR,"dns_do_remote_query sendto errno=%d, errinfo=%s\n", errno, strerror(errno));
+static int dns_do_remote_query(char *buf, ssize_t len, dns_addr_t *id_addr) {
+    int remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (remote_sock == -1) {
+        log_msg(LOG_ERR,"dns_do_remote_query socket errno=%d, errinfo=%s\n", errno, strerror(errno));
         return -1;
     }
+
+    struct timeval tv = {2, 0};
+    if (setsockopt(remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        log_msg(LOG_ERR,"dns_do_remote_query setsockopt SO_RCVTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(remote_sock);
+        return -1;
+    }
+
+    if (-1 == sendto(remote_sock, buf, len, 0, id_addr->addr, id_addr->addrlen)) {
+        log_msg(LOG_ERR,"dns_do_remote_query sendto errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(remote_sock);
+        return -1;
+    }
+
     struct sockaddr src_addr;
     socklen_t src_len = sizeof(struct sockaddr);
-     
     len = recvfrom(remote_sock, buf, BUF_SIZE, 0, &src_addr, &src_len);
-    if (len <0) {
+    if (len < 0) {
         log_msg(LOG_ERR,"dns_do_remote_query recvfrom errno=%d, errinfo=%s\n", errno, strerror(errno));
+        close(remote_sock);
+        return -1;
     }
 	
+    close(remote_sock);
     return len;
 }
 
@@ -406,7 +413,7 @@ domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name){
     return default_fwd_addrs;  
 }
 
-static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
+static int  do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
     struct ether_hdr *eth_hdr = NULL;
     struct ipv4_hdr  *ip4_hdr = NULL;
     struct udp_hdr   *udp_hdr = NULL; 
@@ -439,7 +446,7 @@ static int  do_dns_handle_remote(int socket, struct rte_mbuf *pkt, uint16_t old_
         int i =0;
         int retfwd =0;
         for (;i < fwd_addrs->servers_len; i++) {
-            retfwd = dns_do_remote_query(socket,buf_data,len,&fwd_addrs->server_addrs[i]);
+            retfwd = dns_do_remote_query(buf_data,len,&fwd_addrs->server_addrs[i]);
             if (retfwd > 0) {
                 break;
             } else {
@@ -527,12 +534,10 @@ uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len)
 }
 
 
-static void *thread_fwd_pkt_process(void *socket){
+static void *thread_fwd_pkt_process(){
     
      log_msg(LOG_INFO,"Starting thread_fwd_pkt_process \n");
      struct fwd_pkt_input *etm ;
-
-     int * remote_sock  = (int *)socket;
 
      while (1){
 
@@ -544,7 +549,7 @@ static void *thread_fwd_pkt_process(void *socket){
         }
 
         rte_atomic64_inc(&fwd_stats.dns_fwd_rcv);
-        int  fwd_len = do_dns_handle_remote(*remote_sock,etm->pkt,etm->old_id,etm->qtype,etm->domain_name);
+        int  fwd_len = do_dns_handle_remote(etm->pkt,etm->old_id,etm->qtype,etm->domain_name);
         
         if (unlikely(fwd_len <= 0)){
             log_msg(LOG_ERR,"can not get rte_mbuf from do_dns_handle_remote\n");
