@@ -303,23 +303,28 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     /* create a separate thread to send task status as quick as possible */
     int i =0;
     for( ;i< fwd_threads;i++){
-          int * remote_sock =    (int *)  xalloc(sizeof(int));
-          pthread_t *thread_id = (pthread_t *)  xalloc(sizeof(pthread_t));  
-         *remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); 
-         struct timeval tv = {2, 0};
-         
-         if (setsockopt(*remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
-             
-             log_msg(LOG_ERR,"socket option  SO_RCVTIMEO not support\n");  
-             exit(-1);  
-         } 
+        int * remote_sock =    (int *)  xalloc(sizeof(int));
+        pthread_t *thread_id = (pthread_t *)  xalloc(sizeof(pthread_t));  
+        *remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); 
+        struct timeval tv = {2, 0};
 
-         pthread_create(thread_id, NULL, thread_fwd_pkt_process, (void*)remote_sock);
+        if (setsockopt(*remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {  
+
+            log_msg(LOG_ERR,"socket option  SO_RCVTIMEO not support\n");  
+            exit(-1);  
+        } 
+
+        pthread_create(thread_id, NULL, thread_fwd_pkt_process, (void*)remote_sock);
+
+        char tname[16];
+        snprintf(tname, sizeof(tname), "kdns_udp_fwd_%d", i);
+        pthread_setname_np(*thread_id, tname);
     }
- 
-     // cache date expired clean up thread
-     pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
-     pthread_create(thread_cache_expired, NULL, thread_fwd_cache_expired_cleanup, (void*)NULL);
+
+    // cache date expired clean up thread
+    pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
+    pthread_create(thread_cache_expired, NULL, thread_fwd_cache_expired_cleanup, (void*)NULL);
+    pthread_setname_np(*thread_cache_expired, "kdns_fwd_cache");
  
     return 0;
 }

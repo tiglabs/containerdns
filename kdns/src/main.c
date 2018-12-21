@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -114,44 +116,82 @@ static void init_signals(void)
 	sigaction(SIGUSR2, &sigact, NULL);
 }
 
+static int set_thread_affinity(void)
+{
+    int s;
+    uint8_t cid;
+    pthread_t tid;
+    cpu_set_t cpuset;
+    unsigned long long cpumask = 0;
+
+    tid = pthread_self();
+    CPU_ZERO(&cpuset);
+    for (cid = 0; cid < RTE_MAX_LCORE; ++cid) {
+        if (!rte_lcore_is_enabled(cid)) {
+            CPU_SET(cid, &cpuset);
+        }
+    }
+
+    s = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+    if (s != 0) {
+        log_msg(LOG_ERR, "fail to set thread affinty, errno=%d, errinfo=%s\n", errno, strerror(errno));
+        return -1;
+    }
+
+    CPU_ZERO(&cpuset);
+    s = pthread_getaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+    if (s != 0) {
+        log_msg(LOG_ERR, "fail to get thread affinity, errno=%d, errinfo=%s\n", errno, strerror(errno));
+        return -2;
+    }
+
+    for (cid = 0; cid < RTE_MAX_LCORE; cid++) {
+        if (CPU_ISSET(cid, &cpuset)) {
+            cpumask |= (1LL << cid);
+        }
+    }
+    log_msg(LOG_INFO, "current thread affinity is set to %llX\n", cpumask);
+
+    return 0;
+}
 
 int  main(int argc, char **argv)
 { 
-    dns_procname = parse_progname(argv[0]);
-
-    parse_args(argc, argv);
     if (check_pid(PIDFILE) < 0) {
-         exit(0);
+        exit(0);
     }
     write_pid(PIDFILE);
-    
+
+    dns_procname = parse_progname(argv[0]);
+    parse_args(argc, argv);
     config_file_load(dns_cfgfile,dns_procname);
-    
+
     log_open(g_dns_cfg->comm.log_file);
-    
+
     dns_dpdk_init();
-    
-    unsigned lcore_id = rte_lcore_id();
+
+    if (set_thread_affinity() != 0) {
+        log_msg(LOG_ERR, "set_thread_affinity failed\n");
+        exit(EXIT_FAILURE);
+    }
 
     remote_sock_init(g_dns_cfg->comm.fwd_addrs,g_dns_cfg->comm.fwd_def_addrs,g_dns_cfg->comm.fwd_threads);
 
-
     netif_queue_core_bind();
 
-   // struct sigaction action;
-	/* Setup the signal handling... */
-   init_signals();
-   rte_pdump_init("/var/run/.dpdk");
-    
+    // struct sigaction action;
+    /* Setup the signal handling... */
+    init_signals();
+    rte_pdump_init("/var/run/.dpdk");
 
+    unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {     
-        if(kdns_init(lcore_id) < 0){
+        if (kdns_init(lcore_id) < 0) {
             log_msg(LOG_ERR, "Error:kdns_init lcore_id =%d\n",lcore_id); 
             exit(-1);
         }
         rte_eal_remote_launch(process_slave, NULL, lcore_id);
     }
-
 
     dns_tcp_process_init(g_dns_cfg->netdev.kni_vip);
 
