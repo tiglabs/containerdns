@@ -9,8 +9,8 @@
 
 
 
-#define POST_BUFFER_SIZE 1024
-#define REQUEST_BUFFER_SIZE 1024
+#define POST_BUFFER_SIZE (32*1024)
+#define REQUEST_BUFFER_SIZE (16*1024)
 
 #define CONTENT_TYPE_JSON "Content-Type: application/json; charset=utf-8"
 
@@ -50,7 +50,7 @@ int web_endpoint_add(const char *  method, const char * url, struct web_instance
         return -1;
     }
     log_msg(LOG_INFO,"web_endpoint_add method:%s url:%s\n",method,url);
-    ep = calloc(1,sizeof(struct web_endpoint));
+    ep = xalloc_zero(sizeof(struct web_endpoint));
     ep->method = strdup(method);
     ep->url    = strdup(url);
     ep->callback_function = callback_function;
@@ -126,8 +126,6 @@ static int iterate_post(void *coninfo_cls, enum MHD_ValueKind kind, const char *
         const char *filename, const char *content_type, const char *transfer_encoding,
         const char *data, uint64_t off, size_t size)
 {
-    size =size;
-
     printf("post data: %p %d %s=%s %ld %s %s %s\n",coninfo_cls, kind,key, data, off,filename,content_type,transfer_encoding); 
     //Todo
     return MHD_YES;
@@ -145,10 +143,11 @@ static int webservice_dispatcher(void *cls, struct MHD_Connection *connection,
       
     if (*con_cls == NULL) {
         struct connection_info_struct *con_info;
-        con_info = calloc(1, sizeof(struct connection_info_struct));
+        con_info = xalloc_zero(sizeof(struct connection_info_struct));
 
         if (strcmp(method, "POST") == 0 || strcmp(method, "DELETE") == 0){
-            con_info->request_buffer = calloc(1, REQUEST_BUFFER_SIZE);
+            con_info->request_buffer = xalloc_zero(REQUEST_BUFFER_SIZE);
+            //con_info->uploaddata = xalloc_zero(*uploaddata_size + connection->remaining_upload_size);
             con_info->postprocessor = MHD_create_post_processor(connection,
                     POST_BUFFER_SIZE, iterate_post, con_info->request_buffer);
         }
@@ -161,9 +160,21 @@ static int webservice_dispatcher(void *cls, struct MHD_Connection *connection,
 
     /* get request data */
     if (strcmp(method, "POST") == 0 || strcmp(method, "DELETE") == 0){
+        
         if (*uploaddata_size != 0) { /* continue to process the post data */
-            con_info->uploaddata = calloc(1, *uploaddata_size+1);
-            memcpy(con_info->uploaddata,uploaddata,*uploaddata_size);
+            if (con_info->uploaddata == NULL){
+                con_info->uploaddata = xalloc_zero(POST_BUFFER_SIZE);
+                con_info->data_block_idx = 1;
+            }
+            if (con_info->data_buffer_offset + *uploaddata_size > con_info->data_block_idx * POST_BUFFER_SIZE ){
+                con_info->data_block_idx++;
+                con_info->uploaddata = xrealloc(con_info->uploaddata , con_info->data_block_idx * POST_BUFFER_SIZE);  
+                memset(con_info->uploaddata + con_info->data_buffer_offset ,0,
+                    con_info->data_block_idx * POST_BUFFER_SIZE - con_info->data_buffer_offset);
+            }
+            
+            memcpy(con_info->uploaddata + con_info->data_buffer_offset ,uploaddata,*uploaddata_size);
+            con_info->data_buffer_offset += *uploaddata_size;
             MHD_post_process(con_info->postprocessor, uploaddata, *uploaddata_size);
            // con_info->uploaddata = strdup(uploaddata);
             *uploaddata_size = 0;
@@ -242,6 +253,7 @@ int webserver_run(struct web_instance * instance)
             MHD_OPTION_NOTIFY_COMPLETED, request_completed,NULL, 
              MHD_OPTION_HTTPS_MEM_KEY, key_pem,
              MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
+             MHD_OPTION_CONNECTION_MEMORY_LIMIT,REQUEST_BUFFER_SIZE,
             MHD_OPTION_END);
   }else{
         instance->mhd_daemon = MHD_start_daemon(flags, instance->port,
