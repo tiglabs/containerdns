@@ -9,7 +9,9 @@ struct connection_info_struct
 {
     struct MHD_PostProcessor *postprocessor;
     void *request_buffer;   // must be molloc(s)
-    void *uploaddata;      // must be molloc(s)
+    char *uploaddata;      // must be molloc(s)
+    size_t data_buffer_offset;
+    size_t data_block_idx;
 };
 
 

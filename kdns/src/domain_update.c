@@ -221,7 +221,7 @@ void doman_msg_slave_process(void){
     }   
 }
 
-static void send_domain_msg_to_master(struct domin_info_update *msg){ 
+static int send_domain_msg_to_master(struct domin_info_update *msg, int tryNum){ 
     
     unsigned cid_master = get_master_lcore_id();
     
@@ -229,15 +229,28 @@ static void send_domain_msg_to_master(struct domin_info_update *msg){
     int res = rte_ring_enqueue(domian_msg_ring[cid_master],(void *) msg);
 
     if (unlikely(-EDQUOT == res)) {
+        if (tryNum == 0){
         log_msg(LOG_ERR," msg_ring of master lcore %d quota exceeded\n", cid_master);
+            log_msg(LOG_ERR,"inser domain:%s  host :%s err!\n",msg->domain_name, msg->host);
+        }
+        free(msg);
+        return -1;
    } else if (unlikely(-ENOBUFS == res)) {
+        if (tryNum == 0){
         log_msg(LOG_ERR," msg_ring of master lcore %d is full\n", cid_master);
+            log_msg(LOG_ERR,"inser domain:%s  host :%s err!\n",msg->domain_name, msg->host);
+        }
         free(msg);
+        return -1;
    } else if (res) {
+        if (tryNum == 0){      
         log_msg(LOG_ERR,"unkown error %d for rte_ring_enqueue master lcore %d\n", res,cid_master);
+            log_msg(LOG_ERR,"inser domain:%s  host :%s err!\n",msg->domain_name, msg->host);
+        }
         free(msg);
+        return -1;
    } 
-   return ;
+   return 0;
 }
 
 
@@ -248,58 +261,34 @@ static inline int ipv4_address_check(const char *str)
 }
 
 
-static void* domaindata_parse(enum db_action   action,struct connection_info_struct *con_info , int * len_response)
-{
-    char * post_ok = strdup("OK\n");
-    char * parseErr = NULL;
-    
-    if (action == DOMAN_ACTION_ADD){        
-        log_msg(LOG_INFO,"add data = %s\n",(char *)con_info->uploaddata);
-    }else{ 
-        log_msg(LOG_INFO,"del data = %s\n",(char *)con_info->uploaddata);
-    }
-    *len_response = strlen(post_ok);
-
+static struct domin_info_update * do_domaindata_parse(enum db_action   action, json_t *json_data){
 
    struct domin_info_update *update = calloc(1,sizeof(struct domin_info_update));
    update->action = action;
     /* parse json object */
-    json_error_t jerror;
     const char * value ;
-    json_t *json_response = json_loads(con_info->uploaddata, 0, &jerror); 
-    if (!json_response) {
-        log_msg(LOG_ERR,"load json string  failed: %s %s (line %d, col %d)\n",
-                jerror.text, jerror.source, jerror.line, jerror.column);
-        goto parse_err;
-    }
-    if (!json_is_object(json_response)) {
-        log_msg(LOG_ERR,"load json string failed: not an object!\n");
-        json_decref(json_response);
-        goto parse_err;
-    }
-
     /* get zone name  */
-    json_t *json_key = json_object_get(json_response, "zoneName");
+      json_t *json_key = json_object_get(json_data, "zoneName");
     if (!json_key || !json_is_string(json_key))  {
         log_msg(LOG_ERR,"zoneName does not exist or is not string!");
-        json_decref(json_response);
+          json_decref(json_data);
         goto parse_err;
     }
     value = json_string_value(json_key);
     snprintf(update->zone_name, strlen(value)+1, "%s", value);
     
     /* get domain name  */
-    json_key = json_object_get(json_response, "domainName");
+      json_key = json_object_get(json_data, "domainName");
     if (!json_key || !json_is_string(json_key))  {
         log_msg(LOG_ERR,"domainName does not exist or is not string!");
-        json_decref(json_response);
+          json_decref(json_data);
         goto parse_err;
     }
     value = json_string_value(json_key);
     snprintf(update->domain_name, strlen(value)+1, "%s", value);
 
      /* get ttl  */
-    json_key = json_object_get(json_response, "ttl");
+      json_key = json_object_get(json_data, "ttl");
     if (!json_key || !json_is_integer(json_key))  {
         update->ttl = 30;
     }else{  
@@ -307,7 +296,7 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
     }
 
      /* get maxAnswer  */
-    json_key = json_object_get(json_response, "maxAnswer");
+      json_key = json_object_get(json_data, "maxAnswer");
     if (!json_key || !json_is_integer(json_key))  {
         update->maxAnswer = 0;
     }else{  
@@ -315,10 +304,10 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
     }
 
     /* get type name  */
-    json_key = json_object_get(json_response, "type");
+      json_key = json_object_get(json_data, "type");
     if (!json_key || !json_is_string(json_key))  {
         log_msg(LOG_ERR,"type does not exist or is not string!");
-        json_decref(json_response);
+          json_decref(json_data);
         goto parse_err;
     }
     value = json_string_value(json_key);
@@ -333,12 +322,12 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
         update->type = TYPE_SRV;
     }else{
          log_msg(LOG_ERR,"type not support!");
-        json_decref(json_response);
+          json_decref(json_data);
         goto parse_err;
     }
     if (update->type == TYPE_A){
             /* get view name  */
-           json_key = json_object_get(json_response, "viewName");
+             json_key = json_object_get(json_data, "viewName");
            if (!json_key || !json_is_string(json_key))  {
                 memcpy(update->view_name, DEFAULT_VIEW_NAME, strlen(DEFAULT_VIEW_NAME)); 
             }else{  
@@ -346,13 +335,13 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
                 snprintf(update->view_name, strlen(value)+1, "%s", value);
             }
             /* get lb info*/
-            json_key = json_object_get(json_response, "lbMode");
+              json_key = json_object_get(json_data, "lbMode");
             if (!json_key || !json_is_integer(json_key))  {
                 update->lb_mode = 0;
             }else{  
                 update->lb_mode= json_integer_value(json_key);
             }
-            json_key = json_object_get(json_response, "lbWeight");
+              json_key = json_object_get(json_data, "lbWeight");
             if (!json_key || !json_is_integer(json_key))  {
                 update->lb_weight = 0;
             }else{  
@@ -362,71 +351,172 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
                 update->lb_weight = 1;
             }
         /* get ip addr  */
-           json_key = json_object_get(json_response, "host");
+             json_key = json_object_get(json_data, "host");
            if (!json_key || !json_is_string(json_key))  {
                log_msg(LOG_ERR,"host does not exist or is not string!");
-               json_decref(json_response);
+                 json_decref(json_data);
                goto parse_err;
            }
            value = json_string_value(json_key);
            if (ipv4_address_check(value) <= 0){
                log_msg(LOG_ERR,"host is not an ipv4 addr\n!");
-               json_decref(json_response);
+                 json_decref(json_data);
                goto parse_err;
            }
            snprintf(update->host, strlen(value)+1, "%s", value);     
     } else if (update->type == TYPE_PTR || update->type == TYPE_CNAME){
         /* get host */
-       json_key = json_object_get(json_response, "host");
+         json_key = json_object_get(json_data, "host");
        if (!json_key || !json_is_string(json_key))  {
            log_msg(LOG_ERR,"host does not exist or is not string!");
-           json_decref(json_response);
+             json_decref(json_data);
            goto parse_err;
        }
        value = json_string_value(json_key);
        snprintf(update->host, strlen(value)+1, "%s", value);     
     } else if (update->type == TYPE_SRV){
         /* get host  */
-       json_key = json_object_get(json_response, "host");
+         json_key = json_object_get(json_data, "host");
        if (!json_key || !json_is_string(json_key))  {
            log_msg(LOG_ERR,"ipAddr does not exist or is not string!");
-           json_decref(json_response);
+             json_decref(json_data);
            goto parse_err;
        }
        value = json_string_value(json_key);
        snprintf(update->host, strlen(value)+1, "%s", value);  
 
          /* get priority  */
-        json_key = json_object_get(json_response, "priority");
+          json_key = json_object_get(json_data, "priority");
         if (!json_key || !json_is_integer(json_key))  {
             log_msg(LOG_ERR,"priority does not exist or is not int!");
-            json_decref(json_response);
+              json_decref(json_data);
             goto parse_err;
         }
         update->prio = json_integer_value(json_key);
 
          /* get weight  */
-        json_key = json_object_get(json_response, "weight");
+          json_key = json_object_get(json_data, "weight");
         if (!json_key || !json_is_integer(json_key))  {
             log_msg(LOG_ERR,"weight does not exist or is not int!");
-            json_decref(json_response);
+              json_decref(json_data);
             goto parse_err;
         }
         update->weight= json_integer_value(json_key);
 
          /* get port  */
-        json_key = json_object_get(json_response, "port");
+          json_key = json_object_get(json_data, "port");
         if (!json_key || !json_is_integer(json_key))  {
             log_msg(LOG_ERR,"port does not exist or is not int!");
-            json_decref(json_response);
+              json_decref(json_data);
             goto parse_err;
         }
         update->port = json_integer_value(json_key);
     } 
 
-    send_domain_msg_to_master(update);
+      return update;
     
+ parse_err:
+     free(update);
+     return NULL;
+    
+}
+
+
+static void* domaindata_parse(enum db_action   action,struct connection_info_struct *con_info , int * len_response)
+{
+    char * post_ok = strdup("OK\n");
+    char * parseErr = NULL;
+    
+    if (action == DOMAN_ACTION_ADD){        
+        log_msg(LOG_INFO,"add data = %s\n",(char *)con_info->uploaddata);
+    }else{ 
+        log_msg(LOG_INFO,"del data = %s\n",(char *)con_info->uploaddata);
+    }
+    *len_response = strlen(post_ok);
+    json_error_t jerror;
+
+
+   json_t *json_response = json_loads(con_info->uploaddata, 0, &jerror); 
+   if (!json_response) {
+       log_msg(LOG_ERR,"load json string  failed: %s %s (line %d, col %d)\n",
+               jerror.text, jerror.source, jerror.line, jerror.column);
+       goto parse_err;
+   }
+   if (!json_is_object(json_response)) {
+       log_msg(LOG_ERR,"load json string failed: not an object!\n");
+       json_decref(json_response);
+       goto parse_err;
+   }
+
+
+   struct domin_info_update *update = do_domaindata_parse(action, json_response);
+   if (update != NULL) {
+        send_domain_msg_to_master(update,10);
+        json_decref(json_response);
+        return post_ok;
+    }
+ parse_err:   
+    parseErr = strdup("parse data err\n");
+    *len_response = strlen(parseErr);
+    return (void* )parseErr;
+}
+
+
+static void* domaindata_parse_all(enum db_action   action,struct connection_info_struct *con_info , int * len_response)
+{
+    char * post_ok = strdup("OK\n");
+    char * parseErr = NULL;
+    /*
+    if (action == DOMAN_ACTION_ADD){        
+        log_msg(LOG_INFO,"add data = %s\n",(char *)con_info->uploaddata);
+    }else{ 
+        log_msg(LOG_INFO,"del data = %s\n",(char *)con_info->uploaddata);
+    }*/
+    *len_response = strlen(post_ok);
+   // printf("\n\n %s\n",con_info->uploaddata);
+    
+    json_error_t jerror;
+     
+    json_t *json_response = json_loads(con_info->uploaddata, 0, &jerror); 
+    if (!json_response) {
+        log_msg(LOG_ERR,"load json string  failed: %s %s (line %d, col %d)\n",
+                jerror.text, jerror.source, jerror.line, jerror.column);
+        goto parse_err;
+    }
+
+    if (!json_is_array(json_response)){
+        log_msg(LOG_ERR, "load json string failed: not an array!");
     json_decref(json_response);
+        goto parse_err;
+    }
+    size_t domains_count = json_array_size(json_response);    
+    size_t i_num;
+    
+    for (i_num = 0; i_num < domains_count; i_num++){
+        struct domin_info_update *update;
+        int retry_num = 5;
+        int ret = 0;
+        json_t *array_elem = json_array_get(json_response, i_num);
+        if (!json_is_object(array_elem)) {
+            log_msg(LOG_ERR,"load json string failed: not an object!\n");
+            json_decref(array_elem);
+            goto parse_err;
+        }
+        
+retry:
+        update = do_domaindata_parse(action, array_elem);
+        if (update != NULL) {
+             ret = send_domain_msg_to_master(update, retry_num);
+             if ((ret <0) && (retry_num >0)){
+                retry_num--;
+                //100ms
+                usleep(200000);
+                goto retry;
+             }
+             json_decref(array_elem);
+        }    
+    }
+   // log_msg(LOG_INFO, "%d domains insert\n",domains_count);
 
     return post_ok;
 
@@ -435,8 +525,13 @@ static void* domaindata_parse(enum db_action   action,struct connection_info_str
     *len_response = strlen(parseErr);
     return (void* )parseErr;
 }
+
 static void* domain_post(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){
     return domaindata_parse(DOMAN_ACTION_ADD,con_info,len_response);
+}
+
+static void* domains_post_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){
+    return domaindata_parse_all(DOMAN_ACTION_ADD,con_info,len_response);
 }
 
 
@@ -707,6 +802,7 @@ void domian_info_exchange_run( int port){
     
     dins = webserver_new(port);
     web_endpoint_add("POST","/kdns/domain",dins,&domain_post);
+    web_endpoint_add("POST","/kdns/alldomains",dins,&domains_post_all);
     web_endpoint_add("GET","/kdns/domain",dins,&domains_get);
     web_endpoint_add("GET","/kdns/perdomain/",dins,&domain_get);
     web_endpoint_add("DELETE","/kdns/domain",dins,&domain_del);
