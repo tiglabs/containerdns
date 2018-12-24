@@ -104,7 +104,7 @@ static void parse_dns_fwd_zones(char * fwd_addrs) {
     int zone_idx = 1;
     char *zone_info = NULL;
     char buf[BUF_SIZE];
-    char zone_name[64];
+    char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
     char zone_addr[BUF_SIZE];
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
     if (strlen(fwd_addrs) == 0){
@@ -125,13 +125,18 @@ static void parse_dns_fwd_zones(char * fwd_addrs) {
     while (zone_info) {
         char *pos;
         memset(buf, 0, BUF_SIZE);
-        memset(zone_name, 0, 64);
+        memset(zone_name, 0, FWD_MAX_DOMAIN_NAME_LEN);
         memset(zone_addr, 0, BUF_SIZE);
         strncpy(buf, zone_info, BUF_SIZE - 1);
         pos = (strrchr(buf, '@'));
         if (pos) {
-            memcpy(zone_name,buf,pos - buf);
-            memcpy(zone_addr,pos+1, strlen(buf)+ buf - pos -1 );  
+            if (pos - buf >= FWD_MAX_DOMAIN_NAME_LEN) {
+                log_msg(LOG_ERR, "domain name legth greater than %d\n", FWD_MAX_DOMAIN_NAME_LEN);
+                exit(-1);
+            }
+
+            memcpy(zone_name, buf, pos - buf);
+            memcpy(zone_addr, pos+1, strlen(buf)+ buf - pos -1 );
             fwd_input_tmp[zone_idx].zone_name = strdup(zone_name);
             fwd_input_tmp[zone_idx].fwd_addrs = strdup(zone_addr);
         }else{
