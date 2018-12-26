@@ -701,6 +701,8 @@ static int domain_num_get(void)
 static void* kdns_status_post(__attribute__((unused)) struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response)
 {
     char * post_ok = strdup("OK\n");
+    if (kdns_status)
+	free(kdns_status);
     kdns_status = strdup(DNS_STATUS_RUN);  
     *len_response = strlen(post_ok);
     return (void* )post_ok;
