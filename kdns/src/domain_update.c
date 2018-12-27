@@ -21,9 +21,6 @@
 #define MSG_RING_SIZE  65536
 #define CORE_ID_ERR    0xFF
 
-#define DNS_STATUS_INIT    "init"
-#define DNS_STATUS_RUN     "running"
-
 extern struct kdns dpdk_dns[MAX_CORES];
 extern int tcp_domian_databd_update(struct domin_info_update* update);
 
@@ -138,6 +135,55 @@ static void domain_list_ops(struct domin_info_update *msg,unsigned int hashValue
         free(msg);
     }
   
+}
+
+static void domain_list_del_pre_zone(char* zone_name)
+{
+    struct domin_info_update *pre;
+    struct domin_info_update *find;
+
+    int i =0;
+    rte_rwlock_write_lock(&domian_list_lock);
+    for (i =0; i < DOMAIN_HASH_SIZE; i++ ) {
+        pre = find = g_domian_hash_list[i];
+        while (find) {
+            if (strcmp(find->zone_name, zone_name) == 0) {
+                pre->next = find->next;
+                if (find == g_domian_hash_list[i]) {
+                    g_domian_hash_list[i] = find->next;
+                }
+                free(find);
+                g_domain_num--;
+                find = pre->next;
+            } else {
+                pre = find;
+                find = find->next;
+            }
+        }
+    }
+    rte_rwlock_write_unlock(&domian_list_lock);
+}
+
+void domain_list_del_zone(char* zones)
+{
+    char zoneTmp[ZONES_STR_LEN] = {0};
+    char* name;
+    memcpy(zoneTmp, zones, strlen(zones));
+    log_msg(LOG_INFO, "domain list del zones: %s\n",zones);
+    name = strtok(zoneTmp, ",");
+    while (name) {
+        domain_list_del_pre_zone(name);
+        name = strtok(0, ",");
+    }
+
+    return;
+}
+
+void domain_set_kdns_status(const char* status)
+{
+    if (kdns_status)
+        free(kdns_status);
+    kdns_status = strdup(status);
 }
 
 // to optimization

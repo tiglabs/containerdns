@@ -76,7 +76,8 @@ static void signal_handler(int sig)
             log_msg(LOG_ERR, "INT signal @@@.");
             break;
         case SIGHUP:
-            log_msg(LOG_ERR, "Program hanged up @@@.");
+            log_msg(LOG_INFO, "Program hanged up @@@.");
+            config_reload_proc(dns_cfgfile);
             break;
         case SIGPIPE:
             log_msg(LOG_ERR, "SIGPIPE @@@.");

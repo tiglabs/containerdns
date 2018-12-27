@@ -4,8 +4,10 @@
 #define	_FORWARD_H_
 
 #include <arpa/inet.h>
-
+#include <rte_rwlock.h>
 #define FWD_MAX_DOMAIN_NAME_LEN  255
+
+rte_rwlock_t __fwd_lock;
 
 typedef struct {
    struct sockaddr *addr;
@@ -25,4 +27,7 @@ domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name);
 int dns_tcp_process_init(char *ip);
 void fwd_statsdata_get(struct netif_queue_stats *sta);
 void fwd_statsdata_reset();
+
+int fwd_def_addrs_reload(char *addrs);
+int fwd_addrs_reload(char *addrs);
 #endif	/*_FORWARD_H_*/

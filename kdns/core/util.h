@@ -42,6 +42,7 @@ void log_open( char *ident);
 void log_msg(int priority, const char *format, ...)
 	ATTR_FORMAT(printf, 2, 3);
 
+int log_file_reload(char *filename);
 
 void *xalloc(size_t size);
 void *xalloc_zero(size_t size);

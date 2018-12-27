@@ -25,6 +25,7 @@
 #include "netdev.h"
 #include "util.h"
 #include "forward.h"
+#include "dns-conf.h"
 
 struct fwd_pkt_input {
     struct rte_mbuf *pkt;
@@ -100,26 +101,31 @@ void fwd_statsdata_reset()
     return;
 }
 
-static void parse_dns_fwd_zones(char * fwd_addrs) {
+domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     int zone_idx = 1;
     char *zone_info = NULL;
     char buf[BUF_SIZE];
     char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
     char zone_addr[BUF_SIZE];
+    char fwd_addrs[BUF_SIZE] = {0};
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
-    if (strlen(fwd_addrs) == 0){
+
+    if (strlen(addrs) == 0){
         return;
     }
+    strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
+
     log_msg(LOG_INFO, "parse_dns_fwd_zones fwd_addrs %s\n", fwd_addrs);
     char *pch = strchr(fwd_addrs, '%');
     while (pch != NULL) {
         zone_idx++;
         pch = strchr(pch + 1, '%');
     }
-    zones_fwd_addrs = calloc(zone_idx, sizeof(domain_fwd_addrs*));
+
+    domain_fwd_addrs** tmp_fwd_addrs = calloc(zone_idx, sizeof(domain_fwd_addrs*));
     // in order to use resolve_dns_servers(),use fwd_input_tmp instead of strtok_r
     fwd_input_tmp = calloc(zone_idx, sizeof(zone_fwd_input_tmp));
-    g_fwd_zone_num = zone_idx;
+    *fwd_zone_num = zone_idx;
     zone_idx = 0;
     zone_info = strtok(fwd_addrs, "%");
     while (zone_info) {
@@ -146,12 +152,14 @@ static void parse_dns_fwd_zones(char * fwd_addrs) {
         zone_idx++;
         zone_info = strtok(NULL, "%");    
     }
-    for (zone_idx =0; zone_idx < g_fwd_zone_num; zone_idx++ ){
-        zones_fwd_addrs[zone_idx] = resolve_dns_servers(fwd_input_tmp[zone_idx].zone_name,fwd_input_tmp[zone_idx].fwd_addrs);
+    for (zone_idx =0; zone_idx < *fwd_zone_num; zone_idx++ ){
+        tmp_fwd_addrs[zone_idx] = resolve_dns_servers(fwd_input_tmp[zone_idx].zone_name,fwd_input_tmp[zone_idx].fwd_addrs);
         free(fwd_input_tmp[zone_idx].zone_name);
         free(fwd_input_tmp[zone_idx].fwd_addrs);
     }
-    free(fwd_input_tmp); 
+
+    free(fwd_input_tmp);
+    return tmp_fwd_addrs;
 }
 
 static void fwd_cache_init(void){
@@ -288,10 +296,11 @@ static int  fwd_cache_lookup(char *domain,uint16_t qtype,char *dataGet,int *data
 
 int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
 
+    rte_rwlock_init(&__fwd_lock);
     fwd_cache_init();
 
     default_fwd_addrs = resolve_dns_servers("defulat.zone",fwd_def_addr);
-    parse_dns_fwd_zones(fwd_addrs);
+    zones_fwd_addrs = parse_dns_fwd_zones(fwd_addrs, &g_fwd_zone_num);
     
     master_fwd_pkt_ex_ring = rte_ring_create("master_fwd_pkt_ex_ring", FWD_RING_SIZE, rte_socket_id(), RING_F_SC_DEQ);
     if (!master_fwd_pkt_ex_ring) {
@@ -324,15 +333,17 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     return 0;
 }
 
-static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_addrs) {
+static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) {
     
     char buf[BUF_SIZE];
     struct addrinfo *addr_ip;
     struct addrinfo hints;
     char* token;
+    char dns_addrs[BUF_SIZE] = {0};
 
     int i=0,r = 0;
 
+    strncpy(dns_addrs, addrs, MIN(sizeof(dns_addrs), strlen(addrs)));
     domain_fwd_addrs *fwd_addrs = calloc(1, sizeof(domain_fwd_addrs));
     fwd_addrs->servers_len =1;
     memcpy(fwd_addrs->domain_name,domain_suffix,strlen(domain_suffix));
@@ -445,6 +456,7 @@ static int  do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t
     int status = fwd_cache_lookup(domain, qtype, buf_data, &data_len, expired_recrds);
     // not cached 
     if (status < 0) {
+        rte_rwlock_read_lock(&__fwd_lock);
         int len  = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct udp_hdr);
 
         domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
@@ -464,6 +476,9 @@ static int  do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t
                     ip_src_str, i);
             }
         }
+
+        rte_rwlock_read_unlock(&__fwd_lock);
+
         // when we get data we del the cache
         if (retfwd > 0) {
             if (status == FORWARD_CACHE_DATA_EXPIRED) {
@@ -632,4 +647,61 @@ static void *thread_fwd_cache_expired_cleanup(void *arg){
 
 }
 
+int fwd_def_addrs_reload(char *addrs)
+{
+    domain_fwd_addrs *new_def_fwd_addrs = NULL;
+    domain_fwd_addrs *old_def_fwd_addrs = NULL;
+    if (!addrs)
+        return -1;
 
+    new_def_fwd_addrs = resolve_dns_servers("defulat.zone", addrs);
+    if (new_def_fwd_addrs) {
+        rte_rwlock_write_lock(&__fwd_lock);
+        old_def_fwd_addrs = default_fwd_addrs;
+        default_fwd_addrs = new_def_fwd_addrs;
+        rte_rwlock_write_unlock(&__fwd_lock);
+    }
+
+    if (old_def_fwd_addrs) {
+        if (old_def_fwd_addrs->server_addrs)
+            free(old_def_fwd_addrs->server_addrs);
+
+        free(old_def_fwd_addrs);
+    }
+
+    return 0;
+}
+
+int fwd_addrs_reload(char *addrs)
+{
+    int index = 0;
+    int new_zone_num = 0;
+    int old_zone_num = 0;
+    domain_fwd_addrs **new_fwd_addrs = NULL;
+    domain_fwd_addrs **old_fwd_addrs = NULL;
+
+    if (!addrs)
+        return -1;
+
+    new_fwd_addrs = parse_dns_fwd_zones(addrs, &new_zone_num);
+    if (new_fwd_addrs) {
+        rte_rwlock_write_lock(&__fwd_lock);
+        old_fwd_addrs = zones_fwd_addrs;
+        zones_fwd_addrs = new_fwd_addrs;
+        old_zone_num = g_fwd_zone_num;
+        g_fwd_zone_num = new_zone_num;
+        rte_rwlock_write_unlock(&__fwd_lock);
+    }
+
+    if (old_fwd_addrs) {
+        for (index = 0; index < old_zone_num; index++) {
+            if (old_fwd_addrs[index]->server_addrs)
+                free(old_fwd_addrs[index]->server_addrs);
+            free(old_fwd_addrs[index]);
+        }
+
+        free(old_fwd_addrs);
+    }
+
+    return 0;
+}
