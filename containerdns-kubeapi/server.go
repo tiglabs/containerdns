@@ -1,4 +1,4 @@
-// kube2skydns is a bridge between Kubernetes and containerdns.  It watches the
+// kube2dns is a bridge between Kubernetes and containerdns.  It watches the
 // Kubernetes master for changes in Services and manifests them into etcd for
 //Hedes to serve as DNS records.
 package main
@@ -18,7 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/golang/glog"
-	skydnsmsg "github.com/tiglabs/containerdns/dns-server"
+	dnsmsg "github.com/tiglabs/containerdns/dns-server"
 	"github.com/tiglabs/containerdns/utils/etcdv3"
 	"gopkg.in/gcfg.v1"
 	"hash/fnv"
@@ -28,19 +28,18 @@ import (
 	"strings"
 	"sync"
 	"time"
-
+	"net"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/miekg/dns"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kcache "k8s.io/kubernetes/pkg/client/cache"
-	"k8s.io/kubernetes/pkg/client/restclient"
-	"k8s.io/kubernetes/pkg/util/logs"
-	"k8s.io/kubernetes/pkg/util/wait"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	kclientcmd "k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
-	k8sruntime "k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/watch"
-	k8sflag "k8s.io/kubernetes/pkg/util/flag"
+	clientset "k8s.io/client-go/kubernetes"
+	kcache "k8s.io/client-go/tools/cache"
+	kapi "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/util/wait"
+	kclientcmd "k8s.io/client-go/tools/clientcmd"
+	 "k8s.io/client-go/rest"
 )
 
 const (
@@ -55,7 +54,7 @@ const (
 	etcdKeyNotFound      = "key not found"
 	etcdKeyalReadyExists = "key exists"
 
-	SkydnsKubeApiVersion = "1.3"
+	CondnsKubeApiVersion = "1.4"
 )
 
 var (
@@ -68,7 +67,7 @@ var (
 	monitorIpUpdate map[string]time.Time
 	updateTimeLock sync.Mutex
 
-	syncAllPeriod  time.Duration = 60 * time.Second
+	syncAllPeriod  time.Duration = 600 * time.Second
         // check 3 times  to del
 	syncNeedToDelFromEtcd map[string]int
 )
@@ -110,7 +109,7 @@ type nameNamespace struct {
 	namespace string
 }
 
-type kube2skydns struct {
+type kube2dns struct {
 	// Etcd client.
 	etcdClient *etcdv3.EtcdV3
 	// DNS domain name.
@@ -141,9 +140,9 @@ func readConfig(configPath string) (*ConfigOps, error) {
 }
 
 // Removes 'subdomain' from etcd.
-func (ks *kube2skydns) removeDNS(subdomain string) error {
+func (ks *kube2dns) removeDNS(subdomain string) error {
 	glog.V(2).Infof("Removing %s from DNS", subdomain)
-	key := skydnsmsg.DnsPath(subdomain)
+	key := dnsmsg.DnsPath(subdomain)
 	res, err := ks.etcdClient.Get(key, true)
 	if err != nil {
 		goto errCheck
@@ -162,21 +161,40 @@ errCheck:
 	return err
 }
 
-func (ks *kube2skydns) writeSkydnsRecord(subdomain string, data string) error {
+func (ks *kube2dns) deleteCondnsRecord(name ,data string) error {
+	res, err := ks.etcdClient.Get(dnsmsg.DnsPath(name), true)
+	if err != nil{
+		goto errCheck
+	}
+	err = ks.etcdClient.Delete(res)
+errCheck:
+	if err != nil {
+		if strings.HasPrefix(err.Error(), etcdKeyalReadyExists) {
+			return nil
+		} else {
+			return err
+		}
+	}else{
+		glog.V(2).Infof(" writeCondnsRecord subdomain=%s data:%s\n",name, data)
+	}
+	return err
+}
+
+func (ks *kube2dns) writeCondnsRecord(subdomain string, data string) error {
 	// Set with no TTL, and hope that kubernetes events are accurate.
-	res, err := ks.etcdClient.Get(skydnsmsg.DnsPath(subdomain), true)
+	res, err := ks.etcdClient.Get(dnsmsg.DnsPath(subdomain), true)
 	// the key exist
 	if err == nil {
 		if string(res.Kvs[0].Value) == data {
 			return nil
 		} else {
-			err = ks.etcdClient.Update(skydnsmsg.DnsPath(subdomain), data,string(res.Kvs[0].Value))
+			err = ks.etcdClient.Update(dnsmsg.DnsPath(subdomain), data,string(res.Kvs[0].Value))
 			goto errCheck
 		}
 	}
 	//set
 	if strings.HasPrefix(err.Error(), etcdKeyNotFound) {
-		err = ks.etcdClient.Set(skydnsmsg.DnsPath(subdomain), data)
+		err = ks.etcdClient.Set(dnsmsg.DnsPath(subdomain), data)
 	}
 
 errCheck:
@@ -187,13 +205,13 @@ errCheck:
 			return err
 		}
 	}else{
-		glog.V(2).Infof(" writeSkydnsRecord subdomain=%s data:%s\n",subdomain, data)
+		glog.V(2).Infof(" writeCondnsRecord subdomain=%s data:%s\n",subdomain, data)
 	}
 	return err
 }
 
-func (ks *kube2skydns) deleteIpMonitorRecord(ip string, domain string) error {
-	var status apiSkydnsIpMonitor
+func (ks *kube2dns) deleteIpMonitorRecord(ip string, domain string) error {
+	var status apiCondnsIpMonitor
 	key := gConfig.General.IpMonitorPath + ip
 	res, err := ks.etcdClient.Get(key, false)
 	i :=0
@@ -247,7 +265,7 @@ errCheck:
 	setMonitorIpUpdateTime(ip)
 	return err
 }
-func (ks *kube2skydns) writeIpMonitorRecord(ip string, ports []string,domain string) error {
+func (ks *kube2dns) writeIpMonitorRecord(ip string, ports []string,domain string) error {
 	key := gConfig.General.IpMonitorPath + ip
 	glog.V(4).Infof("writeIpMonitorRecord:%s", key)
 	res, err := ks.etcdClient.Get(key, true)
@@ -257,7 +275,7 @@ func (ks *kube2skydns) writeIpMonitorRecord(ip string, ports []string,domain str
 			glog.V(4).Infof(" writeIpMonitorRecord key:%s exist,val: res.Node.Value:%s", key, string(res.Kvs[0].Value))
 			return nil
 		}
-		var status apiSkydnsIpMonitor
+		var status apiCondnsIpMonitor
 		err := json.Unmarshal(res.Kvs[0].Value,&status)
 		if err != nil {
 			glog.V(2).Infof(" err =%s  domain =%s\n ",err,domain)
@@ -284,7 +302,7 @@ func (ks *kube2skydns) writeIpMonitorRecord(ip string, ports []string,domain str
 	}
 	//set
 	if strings.HasPrefix(err.Error(), etcdKeyNotFound) {
-		var status apiSkydnsIpMonitor
+		var status apiCondnsIpMonitor
 		status.Status = "UP"
 		status.Cluster = gClusterName
 		status.Ports = ports[:]
@@ -351,8 +369,12 @@ func checkMonitorIpChanged(ip string ,last map[string]time.Time )bool{
 	return true
 }
 
-func getSkydnsMsg(ip string, port int, dnstype string,source string) *skydnsmsg.ServiceRecord {
-	return &skydnsmsg.ServiceRecord{
+func getCondnsMsg(ip string, port int, dnstype string,source string) *dnsmsg.ServiceRecord {
+	ipAddr := net.ParseIP(ip)
+	if ipAddr != nil && ipAddr.To4() == nil{
+		dnstype = "AAAA"
+	}
+	return &dnsmsg.ServiceRecord{
 		DnsHost:     ip,
 		DnsPort:     port,
 		DnsPriority: 10,
@@ -378,22 +400,34 @@ func buildPortSegmentString(portName string, portProtocol kapi.Protocol) string 
 	return fmt.Sprintf("_%s._%s", portName, strings.ToLower(string(portProtocol)))
 }
 
-func (ks *kube2skydns) generateSRVRecord(subdomain, portSegment, recordName, cName string, portNumber int32) error {
+func (ks *kube2dns) generateSRVRecord(subdomain, portSegment, recordName, cName string, portNumber int32) error {
 	recordKey := buildDNSNameString(subdomain, portSegment, recordName)
-	srv_rec, err := json.Marshal(getSkydnsMsg(cName, int(portNumber), "SRV",serviceSubdomain))
+	srv_rec, err := json.Marshal(getCondnsMsg(cName, int(portNumber), "SRV",serviceSubdomain))
 	if err != nil {
 		return err
 	}
-	glog.Infof(" srv recordKey =%s\n", recordKey)
-	if err := ks.writeSkydnsRecord(recordKey, string(srv_rec)); err != nil {
+	glog.Infof(" add srv recordKey =%s\n", recordKey)
+	if err := ks.writeCondnsRecord(recordKey, string(srv_rec)); err != nil {
+		return err
+	}
+	return nil
+}
+func (ks *kube2dns) deleteSRVRecord(subdomain, portSegment, recordName, cName string, portNumber int32) error {
+	recordKey := buildDNSNameString(subdomain, portSegment, recordName)
+	srv_rec, err := json.Marshal(getCondnsMsg(cName, int(portNumber), "SRV",serviceSubdomain))
+	if err != nil {
+		return err
+	}
+	glog.Infof(" del srv recordKey =%s\n", recordKey)
+	if err := ks.deleteCondnsRecord(recordKey, string(srv_rec)); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (ks *kube2skydns) generateOneRecordForPortalService(subdomain string, ip string, service *kapi.Service) error {
+func (ks *kube2dns) generateOneRecordForPortalService(subdomain string, ip string, service *kapi.Service) error {
 
-	b, err := json.Marshal(getSkydnsMsg(ip, 0, "A",serviceSubdomain))
+	b, err := json.Marshal(getCondnsMsg(ip, 0, "A",serviceSubdomain))
 	if err != nil {
 		return err
 	}
@@ -402,7 +436,7 @@ func (ks *kube2skydns) generateOneRecordForPortalService(subdomain string, ip st
 	recordKey := buildDNSNameString(subdomain, recordLabel)
 
 	//glog.V(2).Infof("Setting DNS record: %v -> %q, with recordKey: %v\n", subdomain, recordValue, recordKey)
-	if err := ks.writeSkydnsRecord(recordKey, recordValue); err != nil {
+	if err := ks.writeCondnsRecord(recordKey, recordValue); err != nil {
 		return err
 	}
 	var ports []string
@@ -413,7 +447,7 @@ func (ks *kube2skydns) generateOneRecordForPortalService(subdomain string, ip st
 	ks.writeIpMonitorRecord(ip, ports,subdomain)
 	return nil
 }
-func (ks *kube2skydns) generateRecordsForPortalService(subdomain string, service *kapi.Service) error {
+func (ks *kube2dns) generateRecordsForPortalService(subdomain string, service *kapi.Service) error {
 	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
 		ks.generateOneRecordForPortalService(subdomain, service.Spec.ClusterIP, service)
 	}else{
@@ -424,7 +458,7 @@ func (ks *kube2skydns) generateRecordsForPortalService(subdomain string, service
 	return nil
 }
 
-func (ks *kube2skydns) IsServiceVIPSet(service *kapi.Service) bool {
+func (ks *kube2dns) IsServiceVIPSet(service *kapi.Service) bool {
 	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
 		if service.Spec.ClusterIP == "" {
 			return false
@@ -437,7 +471,7 @@ func (ks *kube2skydns) IsServiceVIPSet(service *kapi.Service) bool {
 	return true
 }
 
-func (ks *kube2skydns) IsServiceVIPDiff(oldsvc *kapi.Service, newsvc *kapi.Service) bool {
+func (ks *kube2dns) IsServiceVIPDiff(oldsvc *kapi.Service, newsvc *kapi.Service) bool {
 	if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
 		if oldsvc.Spec.ClusterIP != newsvc.Spec.ClusterIP{
 			return true
@@ -460,10 +494,10 @@ func (ks *kube2skydns) IsServiceVIPDiff(oldsvc *kapi.Service, newsvc *kapi.Servi
 	return true
 }
 
-func (ks *kube2skydns) isServiceSrv(service *kapi.Service) bool {
+func (ks *kube2dns) isServiceSrv(service *kapi.Service) bool {
 	return service.Spec.ClusterIP == "None"
 }
-func (ks *kube2skydns) addDNS(subdomain string, service *kapi.Service) error {
+func (ks *kube2dns) addDNS(subdomain string, service *kapi.Service) error {
 	// if ClusterVIP is not set, a DNS entry should not be created
 	if !ks.IsServiceVIPSet(service) {
 		glog.V(2).Infof("ignore the svc for cluster LB VIP is nil : %s", service.Name)
@@ -488,13 +522,13 @@ func buildDNSNameString(labels ...string) string {
 	return res
 }
 
-func (ks *kube2skydns) newService(obj interface{}) {
+func (ks *kube2dns) newService(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		name := buildDNSNameString(ks.domain, serviceSubdomain, s.Namespace, s.Name)
 		ks.addDNS(name, s)
 	}
 }
-func (ks *kube2skydns) checkEndpointUpdate(objNew interface{}, objOld interface{}) bool {
+func (ks *kube2dns) checkEndpointUpdate(objNew interface{}, objOld interface{}) bool {
 	olde, ok1 := objOld.(*kapi.Endpoints)
 	newe, ok2 := objNew.(*kapi.Endpoints)
 	if ok1 && ok2 {
@@ -506,13 +540,13 @@ func (ks *kube2skydns) checkEndpointUpdate(objNew interface{}, objOld interface{
 	return false
 }
 
-func (ks *kube2skydns) handleEndpointAdd(obj interface{}) {
+func (ks *kube2dns) handleEndpointAdd(obj interface{}) {
 	if e, ok := obj.(*kapi.Endpoints); ok {
 		name := buildDNSNameString(ks.domain, serviceSubdomain, e.Namespace, e.Name)
 		ks.addDNSUsingEndpoints(name, e)
 	}
 }
-func (ks *kube2skydns) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
+func (ks *kube2dns) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
 	key, err := kcache.MetaNamespaceKeyFunc(e)
 	if err != nil {
 		return nil, err
@@ -531,7 +565,7 @@ func (ks *kube2skydns) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 	return nil, fmt.Errorf("got a non service object in services store %v", obj)
 }
 
-func (ks *kube2skydns) addDNSUsingEndpoints(subdomain string, e *kapi.Endpoints) error {
+func (ks *kube2dns) addDNSUsingEndpoints(subdomain string, e *kapi.Endpoints) error {
 	ks.mlock.Lock()
 	defer ks.mlock.Unlock()
 	svc, err := ks.getServiceFromEndpoints(e)
@@ -549,12 +583,12 @@ func (ks *kube2skydns) addDNSUsingEndpoints(subdomain string, e *kapi.Endpoints)
 	return ks.generateRecordsForHeadlessService(subdomain, e, svc)
 }
 
-func (ks *kube2skydns) generateRecordsForHeadlessService(subdomain string, e *kapi.Endpoints, svc *kapi.Service) error {
+func (ks *kube2dns) generateRecordsForHeadlessService(subdomain string, e *kapi.Endpoints, svc *kapi.Service) error {
 	for idx := range e.Subsets {
 		for subIdx := range e.Subsets[idx].Addresses {
 			endpointIP := e.Subsets[idx].Addresses[subIdx].IP
 			podHost := e.Subsets[idx].Addresses[subIdx].Hostname
-			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A",serviceSubdomain))
+			b, err := json.Marshal(getCondnsMsg(endpointIP, 0, "A",serviceSubdomain))
 			if err != nil {
 				return err
 			}
@@ -568,7 +602,7 @@ func (ks *kube2skydns) generateRecordsForHeadlessService(subdomain string, e *ka
 
 			recordKey := buildDNSNameString(subdomain, recordLabel)
 
-			if err := ks.writeSkydnsRecord(recordKey, recordValue); err != nil {
+			if err := ks.writeCondnsRecord(recordKey, recordValue); err != nil {
 				return err
 			}
 
@@ -592,7 +626,7 @@ func (ks *kube2skydns) generateRecordsForHeadlessService(subdomain string, e *ka
 
 	return nil
 }
-func (ks *kube2skydns) removeService(obj interface{}) {
+func (ks *kube2dns) removeService(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		// no vip return
 		if !ks.IsServiceVIPSet(s) {
@@ -605,13 +639,13 @@ func (ks *kube2skydns) removeService(obj interface{}) {
 			glog.Infof("removeService err: %s", err.Error())
 		}
 		if gConfig.Kube2DNS.SvcIpSource == "clusterIP"{
-			err = ks.deleteIpMonitorRecord(s.Spec.ClusterIP,skydnsmsg.DnsPath(name))
+			err = ks.deleteIpMonitorRecord(s.Spec.ClusterIP,dnsmsg.DnsPath(name))
 			if err != nil {
 				glog.Infof("deleteIpMonitorRecord err: %s", err.Error())
 			}
 		}else{
 			for _, ip := range s.Spec.ExternalIPs {
-				err = ks.deleteIpMonitorRecord(ip,skydnsmsg.DnsPath(name))
+				err = ks.deleteIpMonitorRecord(ip,dnsmsg.DnsPath(name))
 				if err != nil {
 					glog.Infof("deleteIpMonitorRecord err: %s", err.Error())
 				}
@@ -622,7 +656,7 @@ func (ks *kube2skydns) removeService(obj interface{}) {
 	}
 }
 
-func (ks *kube2skydns) updateService(oldObj, newObj interface{}) {
+func (ks *kube2dns) updateService(oldObj, newObj interface{}) {
 	oldsvc, ok1 := oldObj.(*kapi.Service)
 	newsvc, ok2 := newObj.(*kapi.Service)
 	if ok1 && ok2 {
@@ -649,13 +683,12 @@ func newEtcdClient(etcdServer,etcdCertfile,etcdKeyile,etcdCafile string) *etcdv3
 
 func newKubeClient() (clientset.Interface, error) {
 	var (
-		config *restclient.Config
+		config *rest.Config
 		err    error
 	)
 
 	overrides := &kclientcmd.ConfigOverrides{}
-	kubeConfig := k8sflag.NewStringFlag(gConfig.Kube2DNS.KubeConfigFile)
-	rules := &kclientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig.Value()}
+	rules := &kclientcmd.ClientConfigLoadingRules{ExplicitPath: gConfig.Kube2DNS.KubeConfigFile}
 	if config, err = kclientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides).ClientConfig(); err != nil {
 		return nil, err
 	}
@@ -663,13 +696,13 @@ func newKubeClient() (clientset.Interface, error) {
 	return clientset.NewForConfig(config)
 }
 
-func watchForServices(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store {
+func watchForServices(kubeClient clientset.Interface, ks *kube2dns) kcache.Store {
 	serviceStore, serviceController := kcache.NewInformer(
 		&kcache.ListWatch{
-			ListFunc: func(options kapi.ListOptions) (k8sruntime.Object, error) {
+			ListFunc: func(options meta.ListOptions) (k8sruntime.Object, error) {
 				return kubeClient.Core().Services(kapi.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options kapi.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(options meta.ListOptions) (watch.Interface, error) {
 				return kubeClient.Core().Services(kapi.NamespaceAll).Watch(options)
 			},
 		},
@@ -684,7 +717,7 @@ func watchForServices(kubeClient clientset.Interface, ks *kube2skydns) kcache.St
 	go serviceController.Run(wait.NeverStop)
 	return serviceStore
 }
-func (ks *kube2skydns) newPodDomain(obj interface{}) {
+func (ks *kube2dns) newPodDomain(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		if p.Status.PodIP == ""{
 			glog.V(2).Infof("ignore the pod for PodIP is nil : %s\n", p.Name)
@@ -692,20 +725,20 @@ func (ks *kube2skydns) newPodDomain(obj interface{}) {
 		}
 
 		recordKey := ks.genPodrecordNameExt(p)
-		b, err := json.Marshal(getSkydnsMsg(p.Status.PodIP, 0, "A",podRecordSpec))
+		b, err := json.Marshal(getCondnsMsg(p.Status.PodIP, 0, "A",podRecordSpec))
 		if err != nil {
 			glog.Infof("newPodDomain Marshal err : %s\n  ", recordKey)
 			return
 		}
 		recordValue := string(b)
-		if err := ks.writeSkydnsRecord(recordKey, recordValue); err != nil {
-			glog.Infof("newPodDomain writeSkydnsRecord %s  err : %s\n  ", recordKey,err)
+		if err := ks.writeCondnsRecord(recordKey, recordValue); err != nil {
+			glog.Infof("newPodDomain writeCondnsRecord %s  err : %s\n  ", recordKey,err)
 			return
 		}
 		ks.writeIpMonitorRecord(p.Status.PodIP,[]string{},ks.genPodrecordName(p))
 	}
 }
-func (ks *kube2skydns) delPodDomain(obj interface{}) {
+func (ks *kube2dns) delPodDomain(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		if p.Status.PodIP == ""{
 			glog.V(2).Infof("ignore the pod for PodIP is nil : %s", p.Name)
@@ -720,7 +753,7 @@ func (ks *kube2skydns) delPodDomain(obj interface{}) {
 	}
 }
 
-func (ks *kube2skydns) updatePodDomain(oldObj, newObj interface{}) {
+func (ks *kube2dns) updatePodDomain(oldObj, newObj interface{}) {
 	oldPod, ok1 := oldObj.(*kapi.Pod)
 	newPod, ok2 := newObj.(*kapi.Pod)
 	if ok1 && ok2 {
@@ -736,13 +769,13 @@ func (ks *kube2skydns) updatePodDomain(oldObj, newObj interface{}) {
 	}
 }
 
-func watchForPods(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store {
+func watchForPods(kubeClient clientset.Interface, ks *kube2dns) kcache.Store {
 	podStore, podController := kcache.NewInformer(
 		&kcache.ListWatch{
-			ListFunc: func(options kapi.ListOptions) (k8sruntime.Object, error) {
+			ListFunc: func(options meta.ListOptions) (k8sruntime.Object, error) {
 				return kubeClient.Core().Pods(kapi.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options kapi.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(options meta.ListOptions) (watch.Interface, error) {
 				return kubeClient.Core().Pods(kapi.NamespaceAll).Watch(options)
 			},
 		},
@@ -758,13 +791,13 @@ func watchForPods(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store 
 	return podStore
 }
 
-func watchEndpoints(kubeClient clientset.Interface, ks *kube2skydns) kcache.Store {
+func watchEndpoints(kubeClient clientset.Interface, ks *kube2dns) kcache.Store {
 	eStore, eController := kcache.NewInformer(
 		&kcache.ListWatch{
-			ListFunc: func(options kapi.ListOptions) (k8sruntime.Object, error) {
+			ListFunc: func(options meta.ListOptions) (k8sruntime.Object, error) {
 				return kubeClient.Core().Endpoints(kapi.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options kapi.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(options meta.ListOptions) (watch.Interface, error) {
 				return kubeClient.Core().Endpoints(kapi.NamespaceAll).Watch(options)
 			},
 		},
@@ -842,7 +875,7 @@ func checkConfigOps() {
 		glog.Fatal("both kube-enable and api-enable are nil , check config file : ", configFile)
 	}
 }
-func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]string, srvSvcMap map[string]string,ipPorts map[string][]string) {
+func (ks *kube2dns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]string, srvSvcMap map[string]string,ipPorts map[string][]string) {
 	// get endpoint
 	var e *kapi.Endpoints = nil
 	for _, m := range ks.endpointsStore.List() {
@@ -862,7 +895,7 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 		for subIdx := range e.Subsets[idx].Addresses {
 			endpointIP := e.Subsets[idx].Addresses[subIdx].IP
 			podHost := e.Subsets[idx].Addresses[subIdx].Hostname
-			b, err := json.Marshal(getSkydnsMsg(endpointIP, 0, "A",serviceSubdomain))
+			b, err := json.Marshal(getCondnsMsg(endpointIP, 0, "A",serviceSubdomain))
 			if err != nil {
 				return
 			}
@@ -875,8 +908,8 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 			}
 			recordKey := buildDNSNameString(subdomain, recordLabel)
 
-			//svcMap[skydnsmsg.DnsPath(recordKey)] = recordValue
-			srvSvcMap[skydnsmsg.DnsPath(recordKey)] = recordValue
+			//svcMap[condnsmsg.DnsPath(recordKey)] = recordValue
+			srvSvcMap[dnsmsg.DnsPath(recordKey)] = recordValue
 
 			//srv
 			for portIdx := range e.Subsets[idx].Ports {
@@ -884,11 +917,11 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 				portSegment := buildPortSegmentString(endpointPort.Name, endpointPort.Protocol)
 				if portSegment != "" {
 					recordKeyReal := buildDNSNameString(subdomain, portSegment, recordLabel)
-					srv_rec, err := json.Marshal(getSkydnsMsg(recordKey, int(endpointPort.Port), "SRV",serviceSubdomain))
+					srv_rec, err := json.Marshal(getCondnsMsg(recordKey, int(endpointPort.Port), "SRV",serviceSubdomain))
 					if err != nil {
 						return
 					}
-					svcMap[skydnsmsg.DnsPath(recordKeyReal)] = string(srv_rec)
+					svcMap[dnsmsg.DnsPath(recordKeyReal)] = string(srv_rec)
 					ipPorts[endpointIP] = append(ipPorts[endpointIP], fmt.Sprintf("%d", endpointPort.Port))
 				}
 			}
@@ -896,7 +929,7 @@ func (ks *kube2skydns) getServicesSRVRecords(s *kapi.Service, svcMap map[string]
 	}
 	return
 }
-func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]string,map[string][]string, bool) {
+func (ks *kube2dns) getServicesFromKube() (map[string]string, map[string]string,map[string][]string, bool) {
 	svcMap := make(map[string]string)
 	srvSvcMap := make(map[string]string)
 	ipPorts := make(map[string][]string)
@@ -927,14 +960,14 @@ func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]stri
 			}
 
 			for _, ip := range ips {
-				b, err := json.Marshal(getSkydnsMsg(ip, 0, "A",serviceSubdomain))
+				b, err := json.Marshal(getCondnsMsg(ip, 0, "A",serviceSubdomain))
 				if err != nil {
 					continue
 				}
 				recordValue := string(b)
 				recordLabel := getHash(recordValue)
 				recordKey := buildDNSNameString(ks.domain, serviceSubdomain, s.Namespace, s.Name, recordLabel)
-				svcMap[skydnsmsg.DnsPath(recordKey)] = recordValue
+				svcMap[dnsmsg.DnsPath(recordKey)] = recordValue
 
 				// get ports
 				for i := range s.Spec.Ports {
@@ -949,15 +982,15 @@ func (ks *kube2skydns) getServicesFromKube() (map[string]string, map[string]stri
 	return svcMap, srvSvcMap,ipPorts, true
 }
 
-func (ks *kube2skydns) genPodrecordName(s *kapi.Pod) string {
+func (ks *kube2dns) genPodrecordName(s *kapi.Pod) string {
 	return buildDNSNameString(ks.domain,"svc",s.Namespace,s.Name)
 }
-func (ks *kube2skydns) genPodrecordNameExt(s *kapi.Pod) string {
+func (ks *kube2dns) genPodrecordNameExt(s *kapi.Pod) string {
 	return buildDNSNameString(ks.domain,"svc",s.Namespace,s.Name,"ip")
 }
 
 
-func (ks *kube2skydns) getPodsFromKube() (map[string]string, bool) {
+func (ks *kube2dns) getPodsFromKube() (map[string]string, bool) {
 	svcMap := make(map[string]string)
 	services := ks.podsStore.List()
 	if len(services) == 0 {
@@ -970,12 +1003,12 @@ func (ks *kube2skydns) getPodsFromKube() (map[string]string, bool) {
 				continue
 			}
 			recordKey := ks.genPodrecordNameExt(s)
-			b, err := json.Marshal(getSkydnsMsg(s.Status.PodIP, 0, "A",podRecordSpec))
+			b, err := json.Marshal(getCondnsMsg(s.Status.PodIP, 0, "A",podRecordSpec))
 			if err != nil {
 				glog.Infof("newPodDomain Marshal err : %s\n  ", recordKey)
 				continue
 			}
-			svcMap[skydnsmsg.DnsPath(recordKey)] = string(b)
+			svcMap[dnsmsg.DnsPath(recordKey)] = string(b)
 		}
 	}
 	return svcMap,true
@@ -994,8 +1027,8 @@ func getSvcDomainName(key string) string {
 
 }
 
-func (ks *kube2skydns) kubeLoopNodes(choose string,kv []*mvccpb.KeyValue, sx map[string]string, hosts map[string][]string) error {
-	var record apiSkydnsRecord
+func (ks *kube2dns) kubeLoopNodes(choose string,kv []*mvccpb.KeyValue, sx map[string]string, hosts map[string][]string) error {
+	var record apiCondnsRecord
 	for _, item := range kv {
 		if err := json.Unmarshal([]byte(item.Value), &record); err != nil {
 			return err
@@ -1021,9 +1054,9 @@ func (ks *kube2skydns) kubeLoopNodes(choose string,kv []*mvccpb.KeyValue, sx map
 	}
 	return nil
 }
-func (ks *kube2skydns) getServicesFromSkydns(name string,choose string, sx map[string]string, hosts map[string][]string) error {
+func (ks *kube2dns) getServicesFromCondns(name string,choose string, sx map[string]string, hosts map[string][]string) error {
 	subdomain := buildDNSNameString(name)
-	r, err := ks.etcdClient.Get(skydnsmsg.DnsPath(subdomain), true)
+	r, err := ks.etcdClient.Get(dnsmsg.DnsPath(subdomain), true)
 	if err != nil {
 		return err
 	}
@@ -1032,7 +1065,7 @@ func (ks *kube2skydns) getServicesFromSkydns(name string,choose string, sx map[s
 
 }
 
-func (ks *kube2skydns) ckeckAndDeleteEtcdRecord(name string,valSkydns string){
+func (ks *kube2dns) ckeckAndDeleteEtcdRecord(name string,valCondns string){
 	num, ckeck := syncNeedToDelFromEtcd[name]
 	if !ckeck{
 		syncNeedToDelFromEtcd[name] = 2
@@ -1040,7 +1073,7 @@ func (ks *kube2skydns) ckeckAndDeleteEtcdRecord(name string,valSkydns string){
 	}
 	num = num -1
 	if num ==0{
-		glog.V(2).Infof("#### svc  del from containerdns key :%s  val =%s\n", name, valSkydns)
+		glog.V(2).Infof("#### svc  del from containerdns key :%s  val =%s\n", name, valCondns)
 		ks.etcdClient.DoDelete(name)
 		delete(syncNeedToDelFromEtcd,name)
 	}else{
@@ -1048,18 +1081,18 @@ func (ks *kube2skydns) ckeckAndDeleteEtcdRecord(name string,valSkydns string){
 	}
 }
 
-func (ks *kube2skydns) syncKube2Skydns() {
-	glog.V(2).Info("Begin syncKube2Skydns...")
+func (ks *kube2dns) syncKube2Condns() {
+	glog.V(2).Info("Begin syncKube2Condns...")
 	var kubeServices ,srvSvcMap map[string]string
 	var ok bool
 	kubeServices,srvSvcMap, monitorIpPotrs, ok = ks.getServicesFromKube()
 	if ok != true {
 		return
 	}
-	svcSkydns := make(map[string]string)
-	hostSkydns := make(map[string][]string)
+	svcCondns := make(map[string]string)
+	hostCondns := make(map[string][]string)
 	// just get svc.
-	err := ks.getServicesFromSkydns(serviceSubdomain + "." + gConfig.Kube2DNS.KubeDomain,serviceSubdomain, svcSkydns, hostSkydns)
+	err := ks.getServicesFromCondns(serviceSubdomain + "." + gConfig.Kube2DNS.KubeDomain,serviceSubdomain, svcCondns, hostCondns)
 	if err != nil {
 		retStr := err.Error()
 		// if key not fond, keep going
@@ -1071,11 +1104,11 @@ func (ks *kube2skydns) syncKube2Skydns() {
 	// srvSvcMap must be set before srv record for all containerdns-allcached
 	for key, val := range srvSvcMap {
 		glog.V(4).Infof("svc in Kube:: key :%s  val =%s\n", key, val)
-		valSkydns, exists := svcSkydns[key]
+		valCondns, exists := svcCondns[key]
 		if exists {
-			if strings.Compare(valSkydns, val) != 0 {
-				glog.V(2).Infof("#### svc  key =%s  kubeval =%s skydnsVal =%s\n", key, val, valSkydns)
-				ks.etcdClient.Update(key, val, valSkydns)
+			if strings.Compare(valCondns, val) != 0 {
+				glog.V(2).Infof("#### svc  key =%s  kubeval =%s condnsVal =%s\n", key, val, valCondns)
+				ks.etcdClient.Update(key, val, valCondns)
 				//Del record
 				if _,exist := syncNeedToDelFromEtcd[key]; exist{
 					delete(syncNeedToDelFromEtcd,key)
@@ -1090,11 +1123,11 @@ func (ks *kube2skydns) syncKube2Skydns() {
 
 	for key, val := range kubeServices {
 		glog.V(4).Infof("svc in Kube:: key :%s  val =%s\n", key, val)
-		valSkydns, exists := svcSkydns[key]
+		valCondns, exists := svcCondns[key]
 		if exists {
-			if strings.Compare(valSkydns, val) != 0 {
-				glog.V(2).Infof("#### svc  key =%s  kubeval =%s skydnsVal =%s\n", key, val, valSkydns)
-				ks.etcdClient.Update(key, val, valSkydns)
+			if strings.Compare(valCondns, val) != 0 {
+				glog.V(2).Infof("#### svc  key =%s  kubeval =%s condnsVal =%s\n", key, val, valCondns)
+				ks.etcdClient.Update(key, val, valCondns)
 				//Del record
 				if _,exist := syncNeedToDelFromEtcd[key]; exist{
 					delete(syncNeedToDelFromEtcd,key)
@@ -1107,29 +1140,29 @@ func (ks *kube2skydns) syncKube2Skydns() {
 		ks.etcdClient.Set(key, val)
 	}
 	// Remove services missing from the update.
-	for name, valSkydns := range svcSkydns {
-		glog.V(4).Infof("svc in containerdns:: key :%s  val =%s\n", name, valSkydns)
+	for name, valCondns := range svcCondns {
+		glog.V(4).Infof("svc in containerdns:: key :%s  val =%s\n", name, valCondns)
 		_, exists1 := kubeServices[name]
 		_, exists2 := srvSvcMap[name]
 		if !exists1 && !exists2 {
-			ks.ckeckAndDeleteEtcdRecord(name,valSkydns)
+			ks.ckeckAndDeleteEtcdRecord(name,valCondns)
 		}
 	}
 }
 
 
-func (ks *kube2skydns) syncPod2Skydns() {
-	glog.V(2).Info("Begin syncKube2Skydns...")
+func (ks *kube2dns) syncPod2Condns() {
+	glog.V(2).Info("Begin syncKube2Condns...")
 	var kubePods map[string]string
 	var ok bool
 	kubePods, ok = ks.getPodsFromKube()
 	if ok != true {
 		return
 	}
-	svcSkydns := make(map[string]string)
-	hostSkydns := make(map[string][]string)
+	svcCondns := make(map[string]string)
+	hostCondns := make(map[string][]string)
 	// just get svc.
-	err := ks.getServicesFromSkydns(serviceSubdomain + "." + gConfig.Kube2DNS.KubeDomain, podRecordSpec, svcSkydns, hostSkydns)
+	err := ks.getServicesFromCondns(serviceSubdomain + "." + gConfig.Kube2DNS.KubeDomain, podRecordSpec, svcCondns, hostCondns)
 	if err != nil {
 		retStr := err.Error()
 		// if key not fond, keep going
@@ -1141,11 +1174,11 @@ func (ks *kube2skydns) syncPod2Skydns() {
 	// srvSvcMap must be set before srv record for all containerdns-allcached
 	for key, val := range kubePods {
 		glog.V(3).Infof("pod in Kube:: key :%s  val =%s\n", key, val)
-		valSkydns, exists := svcSkydns[key]
+		valCondns, exists := svcCondns[key]
 		if exists {
-			if strings.Compare(valSkydns, val) != 0 {
-				glog.V(2).Infof("#### pod key =%s  kubeval =%s skydnsVal =%s\n", key, val, valSkydns)
-				ks.etcdClient.Update(key, val, valSkydns)
+			if strings.Compare(valCondns, val) != 0 {
+				glog.V(2).Infof("#### pod key =%s  kubeval =%s condnsVal =%s\n", key, val, valCondns)
+				ks.etcdClient.Update(key, val, valCondns)
 				//Del record
 				if _,exist := syncNeedToDelFromEtcd[key]; exist{
 					delete(syncNeedToDelFromEtcd,key)
@@ -1159,11 +1192,11 @@ func (ks *kube2skydns) syncPod2Skydns() {
 	}
 
 	// Remove services missing from the update.
-	for name, valSkydns := range svcSkydns {
-		glog.V(3).Infof("svc in containerdns:: key :%s  val =%s\n", name, valSkydns)
+	for name, valCondns := range svcCondns {
+		glog.V(3).Infof("svc in containerdns:: key :%s  val =%s\n", name, valCondns)
 		_, exists := kubePods[name]
 		if !exists {
-			ks.ckeckAndDeleteEtcdRecord(name,valSkydns)
+			ks.ckeckAndDeleteEtcdRecord(name,valCondns)
 		}
 	}
 }
@@ -1190,16 +1223,16 @@ func checkDomainsSame(domains1,domains2 [] string)bool{
 	return true
 }
 
-func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
-	glog.V(2).Info("Begin syncSkydnsHostStatus...")
+func (ks *kube2dns) syncCondnsHostStatus(hostDomins []string) {
+	glog.V(2).Info("Begin syncCondnsHostStatus...")
 	// just get svc + user define
-	svcSkydns := make(map[string]string)
-	hostsSkydns := make(map[string][]string)
+	svcCondns := make(map[string]string)
+	hostsCondns := make(map[string][]string)
 
 	ipUpdateTime := getMonitorIpUpdateTimes()
 
 	for _,domain := range(hostDomins){
-		err := ks.getServicesFromSkydns(domain,"", svcSkydns, hostsSkydns)
+		err := ks.getServicesFromCondns(domain,"", svcCondns, hostsCondns)
 		if err != nil {
 			retStr := err.Error()
 			// if key not fond, keep going
@@ -1211,7 +1244,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 	}
 
 	// get hosts form /containerdns/monitor/status/
-	monitorIps := make(map[string] *apiSkydnsIpMonitor)
+	monitorIps := make(map[string] *apiCondnsIpMonitor)
 
 	r, err1 := ks.etcdClient.Get(gConfig.General.IpMonitorPath, true)
 	if err1 != nil {
@@ -1225,7 +1258,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 		for _, item := range r.Kvs {
 			key := string(item.Key)
 			ip := key[len(gConfig.General.IpMonitorPath):]
-			status := new(apiSkydnsIpMonitor)
+			status := new(apiCondnsIpMonitor)
 			if err := json.Unmarshal([]byte(item.Value), status); err != nil {
 				continue
 			}
@@ -1237,7 +1270,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 	}
 
 	//update the diffs
-	for key, domains := range hostsSkydns {
+	for key, domains := range hostsCondns {
 		glog.V(4).Infof("svcHosts key: %s\n", key)
 		if _, e := ipUpdateTime[key]; e {
 			if checkMonitorIpChanged(key,ipUpdateTime) {
@@ -1246,7 +1279,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 		}
 		_, exists := monitorIps[key]
 		if !exists {
-			var status apiSkydnsIpMonitor
+			var status apiCondnsIpMonitor
 			status.Status = "UP"
 			status.Cluster = gClusterName
 			status.Domains = domains[:]
@@ -1268,7 +1301,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 			}
 		}else{
 			if ! checkDomainsSame(domains, monitorIps[key].Domains){
-				var status apiSkydnsIpMonitor
+				var status apiCondnsIpMonitor
 				status.Status = monitorIps[key].Status
 				status.Cluster = gClusterName
 				status.Ports = monitorIps[key].Ports
@@ -1296,7 +1329,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 		glog.V(4).Infof("monitorIps key: %s\n", key)
 		_, e := ipUpdateTime[key]
 		if !e {
-			if _, exists := hostsSkydns[key];exists{
+			if _, exists := hostsCondns[key];exists{
 				continue
 			}
 		}else{
@@ -1304,7 +1337,7 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 				continue
 			}
 		}
-		_, exists := hostsSkydns[key]
+		_, exists := hostsCondns[key]
 		if !exists {
 			err := ks.etcdClient.DoDelete(gConfig.General.IpMonitorPath + key)
 			if err == nil{
@@ -1321,23 +1354,23 @@ func (ks *kube2skydns) syncSkydnsHostStatus(hostDomins []string) {
 	}
 
 }
-func (ks *kube2skydns) svcSyncLoop(period time.Duration) {
+func (ks *kube2dns) svcSyncLoop(period time.Duration) {
 	for range time.Tick(period) {
 		glog.Infof("svcSyncLoop \n")
-		ks.syncKube2Skydns()
+		ks.syncKube2Condns()
 	}
 }
-func (ks *kube2skydns) hostSyncLoop(domains []string,period time.Duration) {
+func (ks *kube2dns) hostSyncLoop(domains []string,period time.Duration) {
 
 	for range time.Tick(period) {
 		glog.Infof("svcSyncLoop \n")
-		ks.syncSkydnsHostStatus(domains)
+		ks.syncCondnsHostStatus(domains)
 	}
 }
-func (ks *kube2skydns) podSyncLoop(period time.Duration) {
+func (ks *kube2dns) podSyncLoop(period time.Duration) {
 	for range time.Tick(period) {
 		glog.Infof("svcSyncLoop \n")
-		ks.syncPod2Skydns()
+		ks.syncPod2Condns()
 	}
 }
 func init() {
@@ -1365,7 +1398,7 @@ type kubeApiReg struct {
 }
 func kubeapiRegister(client *etcdv3.EtcdV3){
 	var data kubeApiReg
-	data.Version = SkydnsKubeApiVersion + ": " + C.GoString(C.build_time())
+	data.Version = CondnsKubeApiVersion + ": " + C.GoString(C.build_time())
 	data.MonitorPath = gConfig.General.IpMonitorPath
 
 	if  gConfig.Kube2DNS.KubeEnable {
@@ -1386,7 +1419,7 @@ func kubeapiRegister(client *etcdv3.EtcdV3){
 		}
 		recordValue := string(b)
 
-		name := skydnsmsg.DnsPath("apiHost") + gConfig.General.Host
+		name := dnsmsg.DnsPath("apiHost") + gConfig.General.Host
 		glog.V(2).Infof("Heartbeat reg key=%s val =%s\n",name,recordValue)
 		res,err := client.Get(name,false)
 		if err != nil{
@@ -1404,22 +1437,28 @@ func kubeapiRegister(client *etcdv3.EtcdV3){
 	}
 }
 
-var VERSION string
+func glogFlush(period time.Duration) {
+	for range time.Tick(period) {
+		glog.Flush()
+	}
+}
+
 func main() {
 	if version {
-		fmt.Printf("%s\n", SkydnsKubeApiVersion+ ": " + VERSION)
+		fmt.Printf("%s\n", CondnsKubeApiVersion+ ": " + C.GoString(C.build_time()))
 		return
 	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	logs.InitLogs()
-	defer logs.FlushLogs()
+
+	go glogFlush(5 * time.Second)
+	defer glog.Flush()
 
 	checkConfigOps()
 
 	monitorIpUpdate = make(map[string]time.Time)
 	syncNeedToDelFromEtcd = make(map[string]int)
 
-	ks := kube2skydns{
+	ks := kube2dns{
 		domain:              gConfig.Kube2DNS.KubeDomain,
 		etcdMutationTimeout: argEtcdMutationTimeout,
 	}
