@@ -56,8 +56,8 @@ type EtcdOps struct {
 
 }
 type DnsOps struct {
-	SkydnsDomains      string `gcfg:"dns-domains"`
-	SkydnsAddr        string `gcfg:"dns-addr"`
+	CondnsDomains      string `gcfg:"dns-domains"`
+	CondnsAddr        string `gcfg:"dns-addr"`
 	Nameservers       string `gcfg:"ex-nameservers"`
 	InDomainServers  string `gcfg:"inDomainServers"`
 	CacheSize         int  `gcfg:"cacheSize"`
@@ -100,11 +100,11 @@ func readConfig(configPath string) (*ConfigOps, error) {
 
 func configSetDefaults(config *ConfigOps)  {
 
-	if config.Dns.SkydnsAddr == "" {
-		config.Dns.SkydnsAddr = "127.0.0.1:53"
+	if config.Dns.CondnsAddr == "" {
+		config.Dns.CondnsAddr = "127.0.0.1:53"
 	}
-	if config.Dns.SkydnsDomains == "" {
-		config.Dns.SkydnsDomains  = "containerdns.local."
+	if config.Dns.CondnsDomains == "" {
+		config.Dns.CondnsDomains  = "containerdns.local."
 	}
 	if config.Dns.IpMonitorPath ==""{
 		config.Dns.IpMonitorPath = "/containerdns/monitor/status/"
@@ -214,8 +214,8 @@ func main() {
 	configSetDefaults(gConfig)
 
 	var dnsDomains []string
-	if gConfig.Dns.SkydnsDomains != "" {
-		for _, domain := range strings.Split(gConfig.Dns.SkydnsDomains, "%") {
+	if gConfig.Dns.CondnsDomains != "" {
+		for _, domain := range strings.Split(gConfig.Dns.CondnsDomains, "%") {
 			domain = dns.Fqdn(strings.ToLower(domain))
 			dnsDomains = append(dnsDomains, domain)
 		}
@@ -270,7 +270,7 @@ func main() {
 		glog.Infof("  subDomain : %s  subServers :%s ", subKey, subVal)
 	}
 
-	if err := checkHostPort(gConfig.Dns.SkydnsAddr); err != nil {
+	if err := checkHostPort(gConfig.Dns.CondnsAddr); err != nil {
 		glog.Fatalf("containerdns: addr is invalid: %s", err)
 	}
 
@@ -283,7 +283,7 @@ func main() {
 
 	backend = backendetcdCached.NewBackend(clientv3, ctx, 60, 3600, 10)
 
-	s := server.New(backend, dnsDomains, gConfig.Dns.SkydnsAddr, gConfig.Dns.IpMonitorPath,
+	s := server.New(backend, dnsDomains, gConfig.Dns.CondnsAddr, gConfig.Dns.IpMonitorPath,
 		forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold,gConfig.Dns.SkipDomain)
         glog.Infof("dnsDomains = %v\n",dnsDomains)
 	for _, domain := range (dnsDomains) {
@@ -294,7 +294,7 @@ func main() {
 		go s.WatchForDnsDomain(domain,domainWatchIdx + 1, clientv3)
 	}
 	// before server run we get the active ips
-	ipWatchIdx := s.GetSkydnsHostStatus()
+	ipWatchIdx := s.GetCondnsHostStatus()
 	glog.Infof("ipWatchIdx =%v   dir =%s\n", ipWatchIdx, gConfig.Dns.IpMonitorPath)
         go s.WatchForHosts(ipWatchIdx +1,clientv3)
 

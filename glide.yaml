@@ -1,47 +1,34 @@
-package: .
+package: github.com/tiglabs/containerdns/containerdns-kubeapi
 import:
 - package: github.com/coreos/etcd
-  version: v3.2.7
+  version: v3.3.10
   subpackages:
-  - client
   - clientv3
   - mvcc/mvccpb
-  - pkg/transport
 - package: github.com/golang/glog
 - package: github.com/gorilla/mux
-  version: v1.5.0
+  version: v1.6.2
 - package: github.com/miekg/dns
+  version: v1.1.1
 - package: github.com/tiglabs/containerdns
   subpackages:
-  - backends/etcd-cached
-  - dns-schedule/base
-  - dns-schedule/domain
-  - dns-schedule/ipaddr
   - dns-server
-  - queue
-  - utils
-  - utils/alert-mail
-  - utils/etcdv2
   - utils/etcdv3
-  - utils/logs
-  - utils/ping
-  - utils/strs
-- package: golang.org/x/net
-  version: release-branch.go1.8
-  subpackages:
-  - context
 - package: gopkg.in/gcfg.v1
-  version: v1.2.0
-- package: k8s.io/kubernetes
-  version: v1.5.6
+  version: v1.2.3
+- package: k8s.io/api
   subpackages:
-  - pkg/api
-  - pkg/client/cache
-  - pkg/client/clientset_generated/internalclientset
-  - pkg/client/restclient
-  - pkg/client/unversioned/clientcmd
+  - core/v1
+- package: k8s.io/apimachinery
+  subpackages:
+  - pkg/apis/meta/v1
   - pkg/runtime
-  - pkg/util/flag
-  - pkg/util/logs
   - pkg/util/wait
   - pkg/watch
+- package: k8s.io/client-go
+  version: v10.0.0
+  subpackages:
+  - kubernetes
+  - rest
+  - tools/cache
+  - tools/clientcmd

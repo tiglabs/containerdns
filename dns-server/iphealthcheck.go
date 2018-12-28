@@ -11,20 +11,20 @@ import (
 
 )
 
-type apiSkydnsIpMonitor struct {
+type apiCondnsIpMonitor struct {
 	Status string   `json:"status,omitempty"`
 	Ports  []string `json:"ports,omitempty"`
 	Domains  []string `json:"domains,omitempty"`
 }
 
-func (s *server) GetSkydnsHostStatus() int64 {
+func (s *server) GetCondnsHostStatus() int64 {
 	// get hosts form /containerdns/monitor/status/
 
 	monitorIps := make(map[string]bool)
-	glog.Infof("SyncSkydnsHostStatus start get \n")
+	glog.Infof("SyncCondnsHostStatus start get \n")
 	records, err1 := s.backend.GetRaw(s.ipMonitorPath)
-	var record apiSkydnsIpMonitor
-	glog.Infof("SyncSkydnsHostStatus start out \n")
+	var record apiCondnsIpMonitor
+	glog.Infof("SyncCondnsHostStatus start out \n")
 	if err1 != nil {
 		if strings.HasPrefix(err1.Error(),"context deadline exceeded"){
 			glog.Fatalf("err =%s \n", err1.Error())
@@ -52,13 +52,13 @@ func (s *server) GetSkydnsHostStatus() int64 {
 	return records.Header.Revision
 }
 
-func (s *server) SyncSkydnsHostStatus()  {
+func (s *server) SyncCondnsHostStatus()  {
 	// get hosts form /containerdns/monitor/status/
 
 	sycNow := time.Now().Local()
 	monitorIps := make(map[string]bool)
 	records, err1 := s.backend.GetRaw(s.ipMonitorPath)
-	var record apiSkydnsIpMonitor
+	var record apiCondnsIpMonitor
 	if err1 != nil {
 		glog.Infof("Err: %s\n", err1.Error())
 		return
@@ -74,11 +74,11 @@ func (s *server) SyncSkydnsHostStatus()  {
 			monitorIps[ip] = true
 		}
 	}
-	glog.Infof("SyncSkydnsHostStatus  len : %d \n",len(monitorIps))
+	glog.Infof("SyncCondnsHostStatus  len : %d \n",len(monitorIps))
 	s.rcache.Lock()
 	// no change we update  the ips
 	if s.rcache.AvaliableIpsUpdateTime.Before(sycNow){
-		glog.Infof("SyncSkydnsHostStatus : exchanged \n")
+		glog.Infof("SyncCondnsHostStatus : exchanged \n")
 		s.rcache.AvaliableIps = monitorIps
 	}
 	s.rcache.Unlock()
@@ -86,8 +86,8 @@ func (s *server) SyncSkydnsHostStatus()  {
 }
 func (s *server) doUpdateHostStatus(kv, kvPre *mvccpb.KeyValue) {
 	//chck val
-	var valNew apiSkydnsIpMonitor
-	var valPre apiSkydnsIpMonitor
+	var valNew apiCondnsIpMonitor
+	var valPre apiCondnsIpMonitor
 	if kv != nil {
 		if err := json.Unmarshal(kv.Value, &valNew); err != nil {
 			glog.Infof("Err: %s\n", err.Error())
@@ -199,6 +199,6 @@ func (ip *server) HostStatusSync() {
 	// delay not the same time to query etcd
 	syncPeriod := ip.syncPeriod + 1*time.Minute
 	for range time.Tick(syncPeriod) {
-		ip.SyncSkydnsHostStatus()
+		ip.SyncCondnsHostStatus()
 	}
 }
