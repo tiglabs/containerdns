@@ -88,6 +88,23 @@ log_open( char *filename)
 	}
 }
 
+int log_file_reload(char *filename)
+{
+	if (filename) {
+		FILE *file = fopen(filename, "a+");
+		if (!file) {
+			log_msg(LOG_ERR, "Cannot open %s for appending (%s) logging to stderr",
+				filename, strerror(errno));
+			return -1;
+		} else {
+			if (current_log_file != stderr)
+				fclose(current_log_file);
+			current_log_file = file;
+		}
+	}
+
+	return 0;
+}
 
 void
 log_msg(int priority, const char *format, ...)
