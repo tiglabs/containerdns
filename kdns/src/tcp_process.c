@@ -34,7 +34,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
 
 char host_name[64]={0};
 
-static struct	kdns kdns_tcp;
+struct	kdns kdns_tcp;
 static struct  query *query_tcp = NULL;
 
 struct netif_queue_stats tcp_stats;
@@ -110,7 +110,9 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id
     int i = 0;
     int retfwd = 0;
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
+
     tcp_stats.dns_fwd_rcv++;
+    rte_rwlock_read_lock(&__fwd_lock);
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
         retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, TCP_MAX_MESSAGE_LEN, &fwd_addrs->server_addrs[i]);
@@ -126,6 +128,8 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id
                 ip_src_str, i);
         }
     }
+
+    rte_rwlock_read_unlock(&__fwd_lock);
     if (retfwd > 0){
         uint16_t len = htons(retfwd);
         memcpy(recv_buf, &len, 2);

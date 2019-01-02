@@ -145,6 +145,49 @@ domain_store_zone_create(domain_store_type* db, const domain_name_st* dname)
 	return zone;
 }
 
+void delete_zone_rrs(domain_store_type* db, zone_type* zone)
+{
+	rrset_type *rrset;
+	domain_type *domain = zone->apex, *next;
+	int nonexist_check = 0;
+	/* go through entire tree below the zone apex (incl subzones) */
+	while(domain && domain_is_subdomain(domain, zone->apex)) {
+		/* delete all rrsets of the zone */
+		while((rrset = domain_find_any_rrset(domain, zone))) {
+			/* lower usage can delete other domains */
+			rrset_lower_usage(db, rrset);
+			/* rrset del does not delete our domain(yet) */
+			rrset_delete(db, domain, rrset);
+			/* no rrset_zero_nonexist_check, do that later */
+			if(domain->rrsets == 0)
+				nonexist_check = 1;
+		}
+		/* the delete upcoming could delete parents, but nothing next
+		 * or after the domain so store next ptr */
+		next = domain_next(domain);
+		/* see if the domain can be deleted (and inspect parents) */
+		domain_table_deldomain(db, domain);
+		domain = next;
+	}
+
+	/* check if data deletions have created nonexisting domain entries,
+	 * but after deleting domains so the checks are faster */
+	if(nonexist_check) {
+		domain_type* ce = NULL; /* for speeding up has_data_below */
+		domain = zone->apex;
+		while(domain && domain_is_subdomain(domain, zone->apex))
+		{
+			/* the interesting domains should be existing==1
+			 * and rrsets==0, speeding up out processing of
+			 * sub-zones, since we only spuriously check empty
+			 * nonterminals */
+			if(domain->is_existing)
+				ce = rrset_zero_nonexist_check(domain, ce);
+			domain = domain_next(domain);
+		}
+	}
+}
+
 void
 domain_store_zone_delete(domain_store_type* db, zone_type* zone)
 {
@@ -164,7 +207,7 @@ domain_store_zone_delete(domain_store_type* db, zone_type* zone)
 	/* soa_rrset is freed when the SOA was deleted */
 	if(zone->soa_nx_rrset) {
 		free(zone->soa_nx_rrset->rrs);
-		free( zone->soa_nx_rrset);
+		free(zone->soa_nx_rrset);
 	}
 	free(zone);
 }
@@ -190,6 +233,26 @@ void domain_store_zones_check_create(struct kdns*  kdns, char* zones)
     return;
 }
 
+void domain_store_zones_check_delete(struct kdns* kdns, char* zones)
+{
+	char zoneTmp[ZONES_STR_LEN] = {0};
+	char* name;
+	memcpy(zoneTmp, zones, strlen(zones));
+	log_msg(LOG_INFO, "delete zones: %s\n", zones);
+
+	name = strtok(zoneTmp, ",");
+	while (name) {
+		const domain_name_st* dname = (const domain_name_st*)domain_name_parse(name);
+		/* find zone to go with it, or create it */
+		zone_type*  zone = domain_store_find_zone(kdns->db, dname);
+		if (zone) {
+			delete_zone_rrs(kdns->db, zone);
+			domain_store_zone_delete(kdns->db, zone);
+		}
+		name = strtok(0, ",");
+	}
+	return;
+}
 
 /** add an rdata (uncompressed) to the destination */
 static size_t
