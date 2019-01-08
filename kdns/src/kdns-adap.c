@@ -14,7 +14,6 @@
 
 
 #define MAX_CORES 64
-#define EDNS_MAX_MESSAGE_LEN 4096
 
 static struct query *queries[MAX_CORES];
 struct kdns dpdk_dns[MAX_CORES];

@@ -43,7 +43,7 @@ typedef struct {
 
 typedef struct domin_fwd_cache{
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
-    char  data[512];
+    char  data[EDNS_MAX_MESSAGE_LEN];
     int   data_len;
     unsigned int     hashValue ;
     uint16_t         qtype;
@@ -61,7 +61,6 @@ typedef struct domin_fwd_cache{
 #define FORWARD_CACHE_NOT_FIND      -1
 #define FORWARD_CACHE_DATA_EXPIRED  -2
 
-#define BUF_SIZE        512
 #define FWD_RING_SIZE   65536
 
 static domain_fwd_addrs *default_fwd_addrs = NULL ;
@@ -103,10 +102,10 @@ void fwd_statsdata_reset()
 domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     int zone_idx = 1;
     char *zone_info = NULL;
-    char buf[BUF_SIZE];
+    char buf[512];
     char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
-    char zone_addr[BUF_SIZE];
-    char fwd_addrs[BUF_SIZE] = {0};
+    char zone_addr[512];
+    char fwd_addrs[512] = {0};
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
 
     if (strlen(addrs) == 0){
@@ -129,10 +128,10 @@ domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     zone_info = strtok(fwd_addrs, "%");
     while (zone_info) {
         char *pos;
-        memset(buf, 0, BUF_SIZE);
+        memset(buf, 0, sizeof(buf));
         memset(zone_name, 0, FWD_MAX_DOMAIN_NAME_LEN);
-        memset(zone_addr, 0, BUF_SIZE);
-        strncpy(buf, zone_info, BUF_SIZE - 1);
+        memset(zone_addr, 0, sizeof(zone_addr));
+        strncpy(buf, zone_info, sizeof(buf) - 1);
         pos = (strrchr(buf, '@'));
         if (pos) {
             if (pos - buf >= FWD_MAX_DOMAIN_NAME_LEN) {
@@ -333,11 +332,11 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
 
 static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) {
     
-    char buf[BUF_SIZE];
+    char buf[512];
     struct addrinfo *addr_ip;
     struct addrinfo hints;
     char* token;
-    char dns_addrs[BUF_SIZE] = {0};
+    char dns_addrs[512] = {0};
 
     int i=0,r = 0;
 
@@ -361,8 +360,8 @@ static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) 
     token = strtok(dns_addrs, ",");
     while (token) {
         char *port;
-        memset(buf, 0, BUF_SIZE);
-        strncpy(buf, token, BUF_SIZE - 1);
+        memset(buf, 0, sizeof(buf));
+        strncpy(buf, token, sizeof(buf) - 1);
         port = (strrchr(buf, ':'));
         if (port) {
         *port = '\0';
@@ -508,9 +507,9 @@ static int do_dns_handle_remote_response(struct rte_mbuf *pkt, uint16_t old_id, 
 }
 
 static void do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
-    char recv_data[BUF_SIZE] = {0};
-    char detect_data[BUF_SIZE] = {0};
-    char cache_data[BUF_SIZE] = {0};
+    char recv_data[EDNS_MAX_MESSAGE_LEN] = {0};
+    char detect_data[EDNS_MAX_MESSAGE_LEN] = {0};
+    char cache_data[EDNS_MAX_MESSAGE_LEN] = {0};
     int cache_data_len = 0;
 
     struct ipv4_hdr *ip4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *, sizeof(struct ether_hdr));
@@ -525,9 +524,9 @@ static void do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t
     } else if (status == FORWARD_CACHE_NEED_DETECT) {
         memcpy(detect_data, query_data, query_len);
         do_dns_handle_remote_response(pkt, old_id, qtype, domain, cache_data, cache_data_len);
-        dns_query_remote(domain, qtype, detect_data, query_len, recv_data, BUF_SIZE, src_addr);
+        dns_query_remote(domain, qtype, detect_data, query_len, recv_data, EDNS_MAX_MESSAGE_LEN, src_addr);
     } else {
-        int recv_len = dns_query_remote(domain, qtype, query_data, query_len, recv_data, BUF_SIZE, src_addr);
+        int recv_len = dns_query_remote(domain, qtype, query_data, query_len, recv_data, EDNS_MAX_MESSAGE_LEN, src_addr);
         if (recv_len > 0) {
             do_dns_handle_remote_response(pkt, old_id, qtype, domain, recv_data, recv_len);
         } else {
