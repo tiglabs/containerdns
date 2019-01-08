@@ -2,6 +2,9 @@
  * tcp+process.c 
  */
 
+#define _GNU_SOURCE
+#include <pthread.h>
+
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -21,11 +24,9 @@
 #include "db_update.h"
 #include "query.h"
 #include "kdns-adap.h"
-
-
+#include "tcp_process.h"
 
 extern  struct dns_config *g_dns_cfg;
-extern void domain_store_zones_check_create(struct kdns*  kdns, char *zones);
 
 int tcp_domian_databd_update(struct domin_info_update* update);
 static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain, uint16_t qtype, struct sockaddr_in *pin);
@@ -47,7 +48,7 @@ void tcp_statsdata_get(struct netif_queue_stats *sta)
     return;
 }
 
-void tcp_statsdata_reset()
+void tcp_statsdata_reset(void)
 {
     memset(&tcp_stats, 0, sizeof(tcp_stats));
     return;
@@ -107,6 +108,7 @@ static int dns_do_remote_tcp_query(char *snd_buf, ssize_t snd_len, char *rvc_buf
 static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len,
                                     char *domain, uint16_t qtype, struct sockaddr_in *pin)
 {
+	(void)old_id;
     int i = 0;
     int retfwd = 0;
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
@@ -168,7 +170,8 @@ static void *dns_tcp_process(void *arg) {
           
     struct sockaddr_in sin,pin;
     char *ip  = (char*)arg;
-    int sock_descriptor,temp_sock_descriptor,address_size;  
+    int sock_descriptor,temp_sock_descriptor;
+	socklen_t address_size;  
     char buf[TCP_MAX_MESSAGE_LEN] = {0};
 
     query_tcp = query_create();
@@ -217,7 +220,7 @@ static void *dns_tcp_process(void *arg) {
              *   + Query type         (2)
              */
             uint16_t tcp_query_len = ntohs(*(uint16_t *)buf);
-            if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t) || tcp_query_len > TCP_MAX_MESSAGE_LEN) {
+            if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t)) {
                 log_msg(LOG_ERR, "tcp query from %s packet size %d illegal, drop\n", inet_ntoa(pin.sin_addr), tcp_query_len);
                 close(temp_sock_descriptor);
                 break;

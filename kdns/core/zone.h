@@ -49,4 +49,5 @@ uint16_t *zparser_conv_a( const char *text);
 uint16_t *alloc_rdata_init( const void *data, size_t size);
 
 void domain_store_zones_check_delete(struct kdns* kdns, char* zones);
+void domain_store_zones_check_create(struct kdns* kdns, char *zones);
 #endif /* _ZONEC_H_ */

@@ -126,6 +126,7 @@ static int iterate_post(void *coninfo_cls, enum MHD_ValueKind kind, const char *
         const char *filename, const char *content_type, const char *transfer_encoding,
         const char *data, uint64_t off, size_t size)
 {
+	(void)size;
     printf("post data: %p %d %s=%s %ld %s %s %s\n",coninfo_cls, kind,key, data, off,filename,content_type,transfer_encoding); 
     //Todo
     return MHD_YES;
@@ -189,7 +190,7 @@ static int webservice_dispatcher(void *cls, struct MHD_Connection *connection,
 
     struct web_endpoint *ep =  web_endpoint_match(method,url,wen_ins);
     if (ep != NULL){
-        response_buf = ep->callback_function(con_info, url,&response_len);      
+        response_buf = ep->callback_function(con_info, (char *)url,&response_len);      
     }
     return send_page(connection,response_buf,response_len);
 }

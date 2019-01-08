@@ -2,6 +2,9 @@
  * forward.c 
  */
 
+#define _GNU_SOURCE
+#include <pthread.h>
+
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -75,31 +78,32 @@ struct rte_ring *fwd_pkt_to_process_ring;
 
 
 
-static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_addrs);
-static void *thread_fwd_pkt_process();
+static domain_fwd_addrs * resolve_dns_servers(const char * domain_suffix,char * dns_addrs);
+static void *thread_fwd_pkt_process(void *arg);
 static void *thread_fwd_cache_expired_cleanup(void *arg);
 
 
 static struct domin_fwd_cache *g_fwd_cache_hash_list[FORWARD_HASH_SIZE + 1 ] ;
 static rte_rwlock_t fwd_cache_list_lock;
 
-struct netif_queue_stats fwd_stats;
+static rte_atomic64_t dns_fwd_rcv;	/* Total number of receive forward packets */
+static rte_atomic64_t dns_fwd_snd;	/* Total number of send to client forward packets */
 
 void fwd_statsdata_get(struct netif_queue_stats *sta)
 {
-    sta->dns_fwd_rcv = fwd_stats.dns_fwd_rcv;
-    sta->dns_fwd_snd = fwd_stats.dns_fwd_snd;
-
+	sta->dns_fwd_rcv = rte_atomic64_read(&dns_fwd_rcv);
+	sta->dns_fwd_snd = rte_atomic64_read(&dns_fwd_snd);
     return;
 }
 
-void fwd_statsdata_reset()
+void fwd_statsdata_reset(void)
 {
-    memset(&fwd_stats, 0, sizeof(fwd_stats));
-    return;
+	rte_atomic64_clear(&dns_fwd_rcv);
+	rte_atomic64_clear(&dns_fwd_snd);
+	return;
 }
 
-domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
+static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     int zone_idx = 1;
     char *zone_info = NULL;
     char buf[512];
@@ -108,8 +112,8 @@ domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     char fwd_addrs[512] = {0};
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
 
-    if (strlen(addrs) == 0){
-        return;
+    if (!addrs){
+        return NULL;
     }
     strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
 
@@ -312,9 +316,11 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     }
 
     /* create a separate thread to send task status as quick as possible */
-    int i =0;
+	rte_atomic64_init(&dns_fwd_rcv);
+	rte_atomic64_init(&dns_fwd_snd);
+    int i = 0;
     for( ;i< fwd_threads;i++){
-        pthread_t *thread_id = (pthread_t *)  xalloc(sizeof(pthread_t));  
+        pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
         pthread_create(thread_id, NULL, thread_fwd_pkt_process, NULL);
 
         char tname[16];
@@ -330,7 +336,7 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     return 0;
 }
 
-static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) {
+static domain_fwd_addrs * resolve_dns_servers(const char *domain_suffix, char *addrs) {
     
     char buf[512];
     struct addrinfo *addr_ip;
@@ -562,19 +568,20 @@ int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *
     return 0;   
 }
 
-uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len)
+uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_cnt)
 {
 
-    while (pkts_len > 0 && unlikely(rte_ring_dequeue_bulk(master_fwd_pkt_ex_ring, (void ** )mbufs, pkts_len) != 0)) {
-        pkts_len = (uint16_t)RTE_MIN(rte_ring_count(master_fwd_pkt_ex_ring),pkts_len);
+    while (pkts_cnt > 0 && unlikely(rte_ring_dequeue_bulk(master_fwd_pkt_ex_ring, (void ** )mbufs, pkts_cnt) != 0)) {
+        pkts_cnt = (uint16_t)RTE_MIN(rte_ring_count(master_fwd_pkt_ex_ring),pkts_cnt);
     }
 
-    rte_atomic64_add(&fwd_stats.dns_fwd_snd, pkts_len);
-    return pkts_len;
+	rte_atomic64_add(&dns_fwd_snd, pkts_cnt);
+    return pkts_cnt;
 }
 
-static void *thread_fwd_pkt_process(){
-    struct fwd_pkt_input *etm ;
+static void *thread_fwd_pkt_process(void *arg){
+	(void)arg;
+    struct fwd_pkt_input *etm;
     
     log_msg(LOG_INFO,"Starting thread_fwd_pkt_process \n");
     while (1) {
@@ -582,7 +589,7 @@ static void *thread_fwd_pkt_process(){
             usleep(10);
             continue;
         }
-        rte_atomic64_inc(&fwd_stats.dns_fwd_rcv);
+		rte_atomic64_inc(&dns_fwd_rcv);
 
         do_dns_handle_remote(etm->pkt, etm->old_id, etm->qtype, etm->domain_name);
         free(etm);
@@ -629,7 +636,7 @@ static void do_fwd_cache_expired_cleanup(int idx_start, int idx_end){
 }
 
 static void *thread_fwd_cache_expired_cleanup(void *arg){
-
+	 (void)arg;
      int last_idx = 0;
      int idx_start,idx_end;
      while (1){

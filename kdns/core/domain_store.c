@@ -180,6 +180,7 @@ rrset_zero_nonexist_check(domain_type* domain, domain_type* ce)
 void
 rrset_delete(domain_store_type* db, domain_type* domain, rrset_type* rrset)
 {
+	(void)db;
 	int i;
 	/* find previous */
 	rrset_type** pp = &domain->rrsets;

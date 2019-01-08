@@ -6,7 +6,9 @@
  * Modified Work Copyright (c) 2018 The TIGLabs Authors.
  *
  */
- 
+
+#include <stdlib.h>
+
 #include "dns.h"
 #include "kdns.h"
 #include "domain_store.h"
@@ -88,7 +90,7 @@ query_reset(kdns_query_st *q )
         q->wildcard_match = NULL;
     }
     if (q->qname != NULL){
-        memset(q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN * 2);
+        memset((void *)q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN * 2);
     }   
     buffer_clear(q->packet);
     q->qtype = 0;
@@ -118,7 +120,7 @@ process_query_section(kdns_query_st *query)
 	if(!packet_read_query_section(query->packet, qnamebuf,
 		&query->qtype, &query->qclass))
 		return 0;
-	query->qname = domain_name_make_no_malloc( qnamebuf, 1,query->qname);
+	query->qname = domain_name_make_no_malloc( qnamebuf, 1,(domain_name_st *)query->qname);
 	return 1;
 }
 
@@ -209,7 +211,7 @@ answer_soa(struct query *query, kdns_answer_st *answer)
 static void
 answer_nodata(struct query *query, kdns_answer_st *answer, domain_type *original)
 {
-    original;
+	(void)original;
 	if (query->cname_count == 0) {
 		answer_soa(query, answer);
 	}

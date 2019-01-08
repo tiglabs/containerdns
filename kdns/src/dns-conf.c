@@ -6,6 +6,7 @@
 #include "util.h"
 #include "domain_update.h"
 #include "forward.h"
+#include "kdns-adap.h"
 
 #include "parser.h"
 
@@ -92,7 +93,7 @@ common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
     if (entry) {
          cfg->fwd_addrs = strdup(entry);   
     }else{
-        cfg->fwd_addrs = ""; 
+        cfg->fwd_addrs = NULL; 
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-thread-num");
@@ -265,7 +266,7 @@ common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
     if (entry) {
          cfg->fwd_addrs = strdup(entry);
     }else{
-        cfg->fwd_addrs = "";
+        cfg->fwd_addrs = NULL;
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "zones");
@@ -382,7 +383,7 @@ static int config_fwd_addrs_reload_proc(void)
             return ret;
         }
 
-        if (strlen(g_dns_cfg->comm.fwd_addrs))
+        if (g_dns_cfg->comm.fwd_addrs)
             free(g_dns_cfg->comm.fwd_addrs);
 
         g_dns_cfg->comm.fwd_addrs = g_reload_dns_cfg->comm.fwd_addrs;
@@ -555,7 +556,7 @@ static void config_reload_free(void)
     if (g_reload_dns_cfg->comm.fwd_def_addrs)
         free(g_reload_dns_cfg->comm.fwd_def_addrs);
 
-    if (g_reload_dns_cfg->comm.fwd_addrs && strlen(g_reload_dns_cfg->comm.fwd_addrs))
+    if (g_reload_dns_cfg->comm.fwd_addrs)
         free(g_reload_dns_cfg->comm.fwd_addrs);
 
     if (g_reload_dns_cfg->comm.zones)
