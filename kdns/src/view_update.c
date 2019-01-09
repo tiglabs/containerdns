@@ -130,7 +130,7 @@ static void do_view_info_get(void * arg1,view_value_t * data){
 }
 
 void* view_get( __attribute__((unused)) struct connection_info_struct *con_info, char* url, int * len_response){
-
+	(void)url;
     log_msg(LOG_INFO,"view_get() in \n");
     char * outErr = NULL;
 

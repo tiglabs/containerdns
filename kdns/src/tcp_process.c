@@ -2,6 +2,9 @@
  * tcp+process.c 
  */
 
+#define _GNU_SOURCE
+#include <pthread.h>
+
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -21,16 +24,12 @@
 #include "db_update.h"
 #include "query.h"
 #include "kdns-adap.h"
-
-
+#include "tcp_process.h"
 
 extern  struct dns_config *g_dns_cfg;
-extern void domain_store_zones_check_create(struct kdns*  kdns, char *zones);
 
 int tcp_domian_databd_update(struct domin_info_update* update);
-static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain, struct sockaddr_in *pin);
-
-
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain, uint16_t qtype, struct sockaddr_in *pin);
 
 char host_name[64]={0};
 
@@ -49,7 +48,7 @@ void tcp_statsdata_get(struct netif_queue_stats *sta)
     return;
 }
 
-void tcp_statsdata_reset()
+void tcp_statsdata_reset(void)
 {
     memset(&tcp_stats, 0, sizeof(tcp_stats));
     return;
@@ -106,7 +105,10 @@ static int dns_do_remote_tcp_query(char *snd_buf, ssize_t snd_len, char *rvc_buf
 }
 
 
-static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain, struct sockaddr_in *pin) {
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len,
+                                    char *domain, uint16_t qtype, struct sockaddr_in *pin)
+{
+	(void)old_id;
     int i = 0;
     int retfwd = 0;
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
@@ -123,7 +125,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt,uint16_t old_id
             char ip_dst_str[INET_ADDRSTRLEN] = {0};
             inet_ntop(AF_INET, &pin->sin_addr, ip_src_str, sizeof(ip_src_str));
             inet_ntop(AF_INET, &((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
-            log_msg(LOG_ERR, "Failed to requset %s to %s:%d, from: %s, trycnt:%d\n", domain,
+            log_msg(LOG_ERR, "Failed to requset %s, type %d, to %s:%d, from: %s, trycnt:%d\n", domain, qtype,
                 ip_dst_str, ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port),
                 ip_src_str, i);
         }
@@ -168,7 +170,8 @@ static void *dns_tcp_process(void *arg) {
           
     struct sockaddr_in sin,pin;
     char *ip  = (char*)arg;
-    int sock_descriptor,temp_sock_descriptor,address_size;  
+    int sock_descriptor,temp_sock_descriptor;
+	socklen_t address_size;  
     char buf[TCP_MAX_MESSAGE_LEN] = {0};
 
     query_tcp = query_create();
@@ -217,7 +220,7 @@ static void *dns_tcp_process(void *arg) {
              *   + Query type         (2)
              */
             uint16_t tcp_query_len = ntohs(*(uint16_t *)buf);
-            if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t) || tcp_query_len > TCP_MAX_MESSAGE_LEN) {
+            if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t)) {
                 log_msg(LOG_ERR, "tcp query from %s packet size %d illegal, drop\n", inet_ntoa(pin.sin_addr), tcp_query_len);
                 close(temp_sock_descriptor);
                 break;
@@ -251,7 +254,7 @@ static void *dns_tcp_process(void *arg) {
             
             if(GET_RCODE(query_tcp->packet) == RCODE_REFUSE) {
                 memcpy((buf + 2) + 2, &flags_old, 2);
-                dns_handle_tcp_remote(temp_sock_descriptor, buf, GET_ID(query_tcp->packet), 2 + tcp_query_len, (char *)domain_name_to_string(query_tcp->qname, NULL), &pin);
+                dns_handle_tcp_remote(temp_sock_descriptor, buf, GET_ID(query_tcp->packet), 2 + tcp_query_len, (char *)domain_name_to_string(query_tcp->qname, NULL), query_tcp->qtype, &pin);
                 continue;
             }
 

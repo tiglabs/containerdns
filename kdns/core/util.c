@@ -33,7 +33,7 @@ static FILE *current_log_file = NULL;
 static int current_pid = 0;
 
 
-static char * getinfo_by_levelId( int level)
+static const char * getinfo_by_levelId( int level)
 {
     struct log_leval_info *table = log_leval_infos;
 
@@ -50,7 +50,7 @@ static char * getinfo_by_levelId( int level)
 static void log_msg_to_file(int log_level, const char *message)
 {
 	size_t length;    
-	char *level_text = getinfo_by_levelId(log_level);
+	const char *level_text = getinfo_by_levelId(log_level);
 
 	struct timeval tv;
 	char time_mbuf[32]={0};

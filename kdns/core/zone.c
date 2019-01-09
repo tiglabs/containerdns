@@ -145,7 +145,7 @@ domain_store_zone_create(domain_store_type* db, const domain_name_st* dname)
 	return zone;
 }
 
-void delete_zone_rrs(domain_store_type* db, zone_type* zone)
+static void delete_zone_rrs(domain_store_type* db, zone_type* zone)
 {
 	rrset_type *rrset;
 	domain_type *domain = zone->apex, *next;

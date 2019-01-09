@@ -14,13 +14,9 @@
 
 
 #define MAX_CORES 64
-#define EDNS_MAX_MESSAGE_LEN 4096
 
 static struct query *queries[MAX_CORES];
 struct kdns dpdk_dns[MAX_CORES];
-
-extern void domain_store_zones_check_create(struct kdns*  kdns, char *zones);
-
 
 int dnsdata_prepare(struct kdns * kdns) {
     if (( kdns->db = domain_store_open()) == NULL) {
