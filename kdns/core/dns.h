@@ -58,10 +58,11 @@ typedef enum rr_section {
 #define TYPE_CNAME	5	/* the canonical name for an alias */
 #define TYPE_SOA	6	/* marks the start of a zone of authority */
 #define TYPE_PTR	12	/* a domain name pointer */
+#define TYPE_AAAA	28	/* ipv6 address */
 #define TYPE_SRV	33	/* SRV record RFC2782 */
 
 
-#define TYPE_SUPPORT_MAX  5
+#define TYPE_SUPPORT_MAX  6
 
 
 #define MAXLABELLEN	63
@@ -297,7 +298,7 @@ label_is_normal(const uint8_t *label)
  * Is LABEL a pointer?
  *
  * Pre: label != NULL;
- 。若是真正的数据，会以0x00结尾；若是指针，指针占2个字节，第一个字节的高2位为11。
+ 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟捷ｏ拷锟斤拷锟斤拷0x00锟斤拷尾锟斤拷锟斤拷锟斤拷指锟诫，指锟斤拷占2锟斤拷锟街节ｏ拷锟斤拷一锟斤拷锟街节的革拷2位为11锟斤拷
  */
 static inline int
 label_is_pointer(const uint8_t *label)

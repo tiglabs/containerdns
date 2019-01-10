@@ -35,6 +35,9 @@ static rrtype_descriptor_st rrtype_descriptors[TYPE_SUPPORT_MAX] = {
 	/* 12 */
 	{ TYPE_PTR, "PTR", 1, 1,
 	  { RDATA_WF_COMPRESSED_DNAME } },
+	  /* 28 */
+	{ TYPE_AAAA, "AAAA", 1, 1,
+	  { RDATA_WF_AAAA } },
 	/* 33 */
 	{ TYPE_SRV, "SRV", 4, 4,
 	  { RDATA_WF_SHORT, RDATA_WF_SHORT, RDATA_WF_SHORT,

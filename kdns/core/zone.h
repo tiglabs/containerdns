@@ -45,6 +45,8 @@ uint16_t *zparser_conv_serial( const char *periodstr);
 uint16_t *zparser_conv_short( const char *text);
 
 uint16_t *zparser_conv_a( const char *text);
+uint16_t *zparser_conv_aaaa(const char *text);
+
 
 uint16_t *alloc_rdata_init( const void *data, size_t size);
 
