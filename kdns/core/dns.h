@@ -298,7 +298,7 @@ label_is_normal(const uint8_t *label)
  * Is LABEL a pointer?
  *
  * Pre: label != NULL;
- ���������������ݣ�����0x00��β������ָ�룬ָ��ռ2���ֽڣ���һ���ֽڵĸ�2λΪ11��
+ 若是真正的数据，会以0x00结尾；若是指针，指针占2个字节，第一个字节的高2位为11。
  */
 static inline int
 label_is_pointer(const uint8_t *label)
