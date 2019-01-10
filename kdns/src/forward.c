@@ -2,6 +2,9 @@
  * forward.c 
  */
 
+#define _GNU_SOURCE
+#include <pthread.h>
+
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -43,7 +46,7 @@ typedef struct {
 
 typedef struct domin_fwd_cache{
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
-    char  data[512];
+    char  data[EDNS_MAX_MESSAGE_LEN];
     int   data_len;
     unsigned int     hashValue ;
     uint16_t         qtype;
@@ -56,14 +59,12 @@ typedef struct domin_fwd_cache{
 // 
 #define FORWARD_CACHE_TIME_OUT_SCAN_NUM  0xFFFF
 
-#define FORWARD_CACHE_FIND            0
-#define FORWARD_CACHE_NOT_FIND       -1
-#define FORWARD_CACHE_DATA_EXPIRED   -2
+#define FORWARD_CACHE_NEED_DETECT   1
+#define FORWARD_CACHE_FIND          0
+#define FORWARD_CACHE_NOT_FIND      -1
+#define FORWARD_CACHE_DATA_EXPIRED  -2
 
-   
-#define BUF_SIZE 512
-
-#define FWD_RING_SIZE     65536
+#define FWD_RING_SIZE   65536
 
 static domain_fwd_addrs *default_fwd_addrs = NULL ;
 
@@ -77,41 +78,42 @@ struct rte_ring *fwd_pkt_to_process_ring;
 
 
 
-static domain_fwd_addrs * resolve_dns_servers(char * domain_suffix,char * dns_addrs);
-static void *thread_fwd_pkt_process();
+static domain_fwd_addrs * resolve_dns_servers(const char * domain_suffix,char * dns_addrs);
+static void *thread_fwd_pkt_process(void *arg);
 static void *thread_fwd_cache_expired_cleanup(void *arg);
 
 
 static struct domin_fwd_cache *g_fwd_cache_hash_list[FORWARD_HASH_SIZE + 1 ] ;
 static rte_rwlock_t fwd_cache_list_lock;
 
-struct netif_queue_stats fwd_stats;
+static rte_atomic64_t dns_fwd_rcv;	/* Total number of receive forward packets */
+static rte_atomic64_t dns_fwd_snd;	/* Total number of send to client forward packets */
 
 void fwd_statsdata_get(struct netif_queue_stats *sta)
 {
-    sta->dns_fwd_rcv = fwd_stats.dns_fwd_rcv;
-    sta->dns_fwd_snd = fwd_stats.dns_fwd_snd;
-
+	sta->dns_fwd_rcv = rte_atomic64_read(&dns_fwd_rcv);
+	sta->dns_fwd_snd = rte_atomic64_read(&dns_fwd_snd);
     return;
 }
 
-void fwd_statsdata_reset()
+void fwd_statsdata_reset(void)
 {
-    memset(&fwd_stats, 0, sizeof(fwd_stats));
-    return;
+	rte_atomic64_clear(&dns_fwd_rcv);
+	rte_atomic64_clear(&dns_fwd_snd);
+	return;
 }
 
-domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
+static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     int zone_idx = 1;
     char *zone_info = NULL;
-    char buf[BUF_SIZE];
+    char buf[512];
     char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
-    char zone_addr[BUF_SIZE];
-    char fwd_addrs[BUF_SIZE] = {0};
+    char zone_addr[512];
+    char fwd_addrs[512] = {0};
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
 
-    if (strlen(addrs) == 0){
-        return;
+    if (!addrs){
+        return NULL;
     }
     strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
 
@@ -130,10 +132,10 @@ domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     zone_info = strtok(fwd_addrs, "%");
     while (zone_info) {
         char *pos;
-        memset(buf, 0, BUF_SIZE);
+        memset(buf, 0, sizeof(buf));
         memset(zone_name, 0, FWD_MAX_DOMAIN_NAME_LEN);
-        memset(zone_addr, 0, BUF_SIZE);
-        strncpy(buf, zone_info, BUF_SIZE - 1);
+        memset(zone_addr, 0, sizeof(zone_addr));
+        strncpy(buf, zone_info, sizeof(buf) - 1);
         pos = (strrchr(buf, '@'));
         if (pos) {
             if (pos - buf >= FWD_MAX_DOMAIN_NAME_LEN) {
@@ -190,10 +192,11 @@ static unsigned int elfHash(char* str, unsigned int len)
 }  
 
 
-static void fwd_cache_insert(char *domain,uint16_t qtype,char *data, int data_len ){
+static void fwd_cache_update(char *domain, uint16_t qtype, char *data, int data_len)
+{
     domin_fwd_cache_st *find;
  
-    unsigned int  hashValue = elfHash(domain, strlen(domain));
+    unsigned int hashValue = elfHash(domain, strlen(domain));
     unsigned int hashId  = hashValue&FORWARD_HASH_SIZE; 
     
     rte_rwlock_write_lock(&fwd_cache_list_lock);
@@ -218,7 +221,10 @@ static void fwd_cache_insert(char *domain,uint16_t qtype,char *data, int data_le
         newNode->time_expired = time(NULL)+ 60; //second
         newNode->next = g_fwd_cache_hash_list[hashId];
         g_fwd_cache_hash_list[hashId] = newNode;
-       
+    } else {
+        find->data_len = data_len;
+        memcpy(find->data,data,data_len);
+        find->time_expired = time(NULL)+ 60;
     }
     rte_rwlock_write_unlock(&fwd_cache_list_lock);    
 }
@@ -256,43 +262,38 @@ static void fwd_cache_del(char *domain,uint16_t qtype){
     rte_rwlock_write_unlock(&fwd_cache_list_lock);    
 }
 
-static int  fwd_cache_lookup(char *domain,uint16_t qtype,char *dataGet,int *data_len,char *expired_recrds){
+static int fwd_cache_lookup(char *domain, uint16_t qtype, char *cache_data, int *cache_data_len)
+{
     domin_fwd_cache_st *find;
     int status = FORWARD_CACHE_NOT_FIND;
-    unsigned int  hashValue = elfHash(domain, strlen(domain));
+    unsigned int hashValue = elfHash(domain, strlen(domain));
     unsigned int hashId  = hashValue&FORWARD_HASH_SIZE; 
-    
 
     rte_rwlock_read_lock(&fwd_cache_list_lock);
-
-   find = g_fwd_cache_hash_list[hashId];
-
-    while(find){
-        if (find->hashValue == hashValue &&
-            find->qtype == qtype &&
-            strcmp(find->domain_name,domain)==0){
+    find = g_fwd_cache_hash_list[hashId];
+    while (find) {
+        if (find->hashValue == hashValue && find->qtype == qtype && strcmp(find->domain_name, domain) == 0) {
             break;
         }
         find = find->next;
     }
-    if (find != NULL){
-        if  (find->time_expired > time(NULL)){
-            memcpy(dataGet,find->data,find->data_len);
-            *data_len = find->data_len;           
-            status = FORWARD_CACHE_FIND;
-        }else{
-             memcpy(expired_recrds,find->data,find->data_len);
-            *data_len = find->data_len;
-            find->time_expired = time(NULL)+ 60; //will be del or used next 60 second
+    if (find != NULL) {
+        memcpy(cache_data, find->data, find->data_len);
+        *cache_data_len = find->data_len;
+        if (find->time_expired > time(NULL)) {
+            if (find->time_expired < time(NULL) + 10) {
+                status = FORWARD_CACHE_NEED_DETECT;
+            } else {
+                status = FORWARD_CACHE_FIND;
+            }
+        } else {
+            find->time_expired = time(NULL)+ 60;    //will be del or used next 60 second
             status = FORWARD_CACHE_DATA_EXPIRED;
         }     
     }
     rte_rwlock_read_unlock(&fwd_cache_list_lock);    
     return status;
 }
-
-
-
 
 int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
 
@@ -315,9 +316,11 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     }
 
     /* create a separate thread to send task status as quick as possible */
-    int i =0;
+	rte_atomic64_init(&dns_fwd_rcv);
+	rte_atomic64_init(&dns_fwd_snd);
+    int i = 0;
     for( ;i< fwd_threads;i++){
-        pthread_t *thread_id = (pthread_t *)  xalloc(sizeof(pthread_t));  
+        pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
         pthread_create(thread_id, NULL, thread_fwd_pkt_process, NULL);
 
         char tname[16];
@@ -333,13 +336,13 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     return 0;
 }
 
-static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) {
+static domain_fwd_addrs * resolve_dns_servers(const char *domain_suffix, char *addrs) {
     
-    char buf[BUF_SIZE];
+    char buf[512];
     struct addrinfo *addr_ip;
     struct addrinfo hints;
     char* token;
-    char dns_addrs[BUF_SIZE] = {0};
+    char dns_addrs[512] = {0};
 
     int i=0,r = 0;
 
@@ -363,8 +366,8 @@ static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) 
     token = strtok(dns_addrs, ",");
     while (token) {
         char *port;
-        memset(buf, 0, BUF_SIZE);
-        strncpy(buf, token, BUF_SIZE - 1);
+        memset(buf, 0, sizeof(buf));
+        strncpy(buf, token, sizeof(buf) - 1);
         port = (strrchr(buf, ':'));
         if (port) {
         *port = '\0';
@@ -384,7 +387,7 @@ static domain_fwd_addrs * resolve_dns_servers(char *domain_suffix, char *addrs) 
     return fwd_addrs;
 }
 
-static int dns_do_remote_query(char *buf, ssize_t len, dns_addr_t *id_addr) {
+static int dns_do_remote_query(char *snd_buf, ssize_t snd_len, char *recv_buf, ssize_t recv_buf_len, dns_addr_t *id_addr) {
     int remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (remote_sock == -1) {
         log_msg(LOG_ERR,"dns_do_remote_query socket errno=%d, errinfo=%s\n", errno, strerror(errno));
@@ -398,7 +401,7 @@ static int dns_do_remote_query(char *buf, ssize_t len, dns_addr_t *id_addr) {
         return -1;
     }
 
-    if (-1 == sendto(remote_sock, buf, len, 0, id_addr->addr, id_addr->addrlen)) {
+    if (-1 == sendto(remote_sock, snd_buf, snd_len, 0, id_addr->addr, id_addr->addrlen)) {
         log_msg(LOG_ERR,"dns_do_remote_query sendto errno=%d, errinfo=%s\n", errno, strerror(errno));
         close(remote_sock);
         return -1;
@@ -406,15 +409,15 @@ static int dns_do_remote_query(char *buf, ssize_t len, dns_addr_t *id_addr) {
 
     struct sockaddr src_addr;
     socklen_t src_len = sizeof(struct sockaddr);
-    len = recvfrom(remote_sock, buf, BUF_SIZE, 0, &src_addr, &src_len);
-    if (len < 0) {
+    int recv_len = recvfrom(remote_sock, recv_buf, recv_buf_len, 0, &src_addr, &src_len);
+    if (recv_len < 0) {
         log_msg(LOG_ERR,"dns_do_remote_query recvfrom errno=%d, errinfo=%s\n", errno, strerror(errno));
         close(remote_sock);
         return -1;
     }
-	
+    
     close(remote_sock);
-    return len;
+    return recv_len;
 }
 
 domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name){
@@ -429,21 +432,50 @@ domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name){
     return default_fwd_addrs;  
 }
 
-static int  do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
+static int dns_query_remote(char *domain, uint16_t qtype, char *query_data, ssize_t query_len,
+                                char *recv_buf, ssize_t recv_buf_len, uint32_t src_addr)
+{
+    int i = 0;
+
+    rte_rwlock_read_lock(&__fwd_lock);
+    domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
+    for (; i < fwd_addrs->servers_len; ++i) {
+        dns_addr_t *server_addrs = &fwd_addrs->server_addrs[i];
+        int recv_len = dns_do_remote_query(query_data, query_len, recv_buf, recv_buf_len, server_addrs);
+        if (recv_len > 0) {
+            fwd_cache_update(domain, qtype, recv_buf, recv_len);
+            rte_rwlock_read_unlock(&__fwd_lock);
+            return recv_len;
+        } else {
+            char ip_src_str[INET_ADDRSTRLEN] = {0};
+            char ip_dst_str[INET_ADDRSTRLEN] = {0};
+            inet_ntop(AF_INET, (struct in_addr *)&src_addr, ip_src_str, sizeof(ip_src_str));
+            inet_ntop(AF_INET, &((struct sockaddr_in *)server_addrs->addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
+            log_msg(LOG_ERR, "Failed to requset %s, type %d, to %s:%d, from: %s, trycnt:%d\n", domain, qtype,
+                ip_dst_str, ntohs(((struct sockaddr_in *)server_addrs->addr)->sin_port), ip_src_str, i);
+        }
+    }
+    rte_rwlock_read_unlock(&__fwd_lock);
+    return -1;
+}
+
+static int do_dns_handle_remote_response(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain, char *response_data, int response_len)
+{
     struct ether_hdr *eth_hdr = NULL;
     struct ipv4_hdr  *ip4_hdr = NULL;
-    struct udp_hdr   *udp_hdr = NULL; 
+    struct udp_hdr   *udp_hdr = NULL;
+    char *query_data = NULL;
     struct ether_addr *src_mac, *dst_mac;
     uint32_t src_addr, dst_addr;
     uint16_t src_port, dst_port;
-    char *buf_data;
-    char expired_recrds[512]={0};
-    int data_len = 0;
+    struct ether_hdr pkt_eth_hdr;
+    struct ipv4_hdr pkt_ipv4_hdr;
+    struct udp_hdr pkt_udp_hdr;
 
     eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr*); 
     ip4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *, sizeof(struct ether_hdr));
     udp_hdr = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
-    buf_data = rte_pktmbuf_mtod_offset(pkt, char*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)+ sizeof(struct udp_hdr));
+    query_data = rte_pktmbuf_mtod_offset(pkt, char*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)+ sizeof(struct udp_hdr));
 
     src_mac = &(eth_hdr->d_addr);
     dst_mac = &(eth_hdr->s_addr);
@@ -452,74 +484,69 @@ static int  do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t
     src_port = udp_hdr->dst_port;
     dst_port = udp_hdr->src_port;
 
-    // find in cache
-    int status = fwd_cache_lookup(domain, qtype, buf_data, &data_len, expired_recrds);
-    // not cached 
-    if (status < 0) {
-        rte_rwlock_read_lock(&__fwd_lock);
-        int len  = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct udp_hdr);
+    init_eth_header(&pkt_eth_hdr, src_mac, dst_mac, ETHER_TYPE_IPv4);
+    init_ipv4_header(&pkt_ipv4_hdr, src_addr, dst_addr, sizeof(struct udp_hdr) + response_len);
+    init_udp_header(&pkt_udp_hdr, src_port, dst_port, response_len);
 
-        domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
-        int i =0;
-        int retfwd =0;
-        for (;i < fwd_addrs->servers_len; i++) {
-            retfwd = dns_do_remote_query(buf_data,len,&fwd_addrs->server_addrs[i]);
-            if (retfwd > 0) {
-                break;
-            } else {
-                char ip_src_str[INET_ADDRSTRLEN] = {0};
-                char ip_dst_str[INET_ADDRSTRLEN] = {0};
-                inet_ntop(AF_INET, (struct in_addr *)&ip4_hdr->src_addr, ip_src_str, sizeof(ip_src_str));
-                inet_ntop(AF_INET, &((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));				
-                log_msg(LOG_ERR, "Failed to requset %s to %s:%d, from: %s, trycnt:%d\n", domain,
-                    ip_dst_str, ntohs(((struct sockaddr_in *)fwd_addrs->server_addrs[i].addr)->sin_port),
-                    ip_src_str, i);
-            }
-        }
+    memcpy(eth_hdr,&pkt_eth_hdr, sizeof(struct ether_hdr));
+    memcpy(ip4_hdr,&pkt_ipv4_hdr, sizeof(struct ipv4_hdr));
+    memcpy(udp_hdr,&pkt_udp_hdr, sizeof(struct udp_hdr));
+    pkt->pkt_len = response_len + sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr);
+    pkt->data_len = pkt->pkt_len;
+    pkt->l2_len = sizeof(struct ether_hdr);
+    pkt->vlan_tci  = ETHER_TYPE_IPv4;
+    pkt->l3_len = sizeof(struct ipv4_hdr);
+    memcpy(query_data, response_data, response_len);
 
-        rte_rwlock_read_unlock(&__fwd_lock);
+    // change the fag and queryId
+    uint16_t ns_old_id = htons(old_id);
+    memcpy(query_data, &ns_old_id, 2);
 
-        // when we get data we del the cache
-        if (retfwd > 0) {
-            if (status == FORWARD_CACHE_DATA_EXPIRED) {
-                fwd_cache_del(domain, qtype);
-            }
-
-            fwd_cache_insert(domain, qtype, buf_data, retfwd);
-            data_len = retfwd;
-        } else { // use the last record
-            memcpy(buf_data, expired_recrds, data_len);
-        }    
+    int ret = rte_ring_mp_enqueue(master_fwd_pkt_ex_ring, (void*)pkt);
+    if (ret != 0) {
+        char ip_src_str[INET_ADDRSTRLEN] = {0};
+        inet_ntop(AF_INET, &dst_addr, ip_src_str, sizeof(ip_src_str));
+        log_msg(LOG_ERR, "Failed to response query: %s, type: %d, from: %s\n", domain, qtype, ip_src_str);
+        rte_pktmbuf_free(pkt);
     }
-
-    
-    if (data_len >0) {
-        struct ether_hdr pkt_eth_hdr;
-        struct ipv4_hdr pkt_ipv4_hdr;
-        struct udp_hdr pkt_udp_hdr;
-  
-        init_eth_header(&pkt_eth_hdr, src_mac, dst_mac, ETHER_TYPE_IPv4);
-        init_ipv4_header(&pkt_ipv4_hdr, src_addr, dst_addr, sizeof(struct udp_hdr) + data_len);
-        init_udp_header(&pkt_udp_hdr, src_port, dst_port, data_len);
-
-         memcpy(eth_hdr,&pkt_eth_hdr, sizeof(struct ether_hdr));
-         memcpy(ip4_hdr,&pkt_ipv4_hdr, sizeof(struct ipv4_hdr));
-         memcpy(udp_hdr,&pkt_udp_hdr, sizeof(struct udp_hdr));
-         pkt->pkt_len = data_len + sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr);
-         pkt->data_len = pkt->pkt_len;
-         pkt->l2_len = sizeof(struct ether_hdr);
-         pkt->vlan_tci  = ETHER_TYPE_IPv4;
-         pkt->l3_len = sizeof(struct ipv4_hdr); 
-
-         // change the fag and  queryId
-         uint16_t ns_old_id = htons(old_id);
-         memcpy(buf_data, &ns_old_id, 2);
-     }
-
-    return data_len;
+    return ret;
 }
 
+static void do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, char *domain) {
+    char recv_data[EDNS_MAX_MESSAGE_LEN] = {0};
+    char detect_data[EDNS_MAX_MESSAGE_LEN] = {0};
+    char cache_data[EDNS_MAX_MESSAGE_LEN] = {0};
+    int cache_data_len = 0;
 
+    struct ipv4_hdr *ip4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *, sizeof(struct ether_hdr));
+    struct udp_hdr *udp_hdr = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
+    char *query_data = rte_pktmbuf_mtod_offset(pkt, char*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)+ sizeof(struct udp_hdr));
+    int query_len = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct udp_hdr);
+    uint32_t src_addr = ip4_hdr->src_addr;
+
+    int status = fwd_cache_lookup(domain, qtype, cache_data, &cache_data_len);
+    if (status == FORWARD_CACHE_FIND) {
+        do_dns_handle_remote_response(pkt, old_id, qtype, domain, cache_data, cache_data_len);
+    } else if (status == FORWARD_CACHE_NEED_DETECT) {
+        memcpy(detect_data, query_data, query_len);
+        do_dns_handle_remote_response(pkt, old_id, qtype, domain, cache_data, cache_data_len);
+        dns_query_remote(domain, qtype, detect_data, query_len, recv_data, EDNS_MAX_MESSAGE_LEN, src_addr);
+    } else {
+        int recv_len = dns_query_remote(domain, qtype, query_data, query_len, recv_data, EDNS_MAX_MESSAGE_LEN, src_addr);
+        if (recv_len > 0) {
+            do_dns_handle_remote_response(pkt, old_id, qtype, domain, recv_data, recv_len);
+        } else {
+            if (status == FORWARD_CACHE_DATA_EXPIRED) {
+                do_dns_handle_remote_response(pkt, old_id, qtype, domain, cache_data, cache_data_len);
+            } else {
+                char ip_src_str[INET_ADDRSTRLEN] = {0};
+                inet_ntop(AF_INET, &src_addr, ip_src_str, sizeof(ip_src_str));
+                log_msg(LOG_ERR, "Query failed and no cache, failed to response query: %s, type: %d, from: %s\n", domain, qtype, ip_src_str);
+                rte_pktmbuf_free(pkt);
+            }
+        }
+    }
+}
 
 int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *domain){
 
@@ -541,52 +568,33 @@ int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *
     return 0;   
 }
 
-uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len)
+uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_cnt)
 {
 
-   while (pkts_len > 0 &&
-				unlikely(rte_ring_dequeue_bulk(master_fwd_pkt_ex_ring, (void ** )mbufs,
-					pkts_len) != 0))
-			pkts_len = (uint16_t)RTE_MIN(rte_ring_count(master_fwd_pkt_ex_ring),pkts_len);
+    while (pkts_cnt > 0 && unlikely(rte_ring_dequeue_bulk(master_fwd_pkt_ex_ring, (void ** )mbufs, pkts_cnt) != 0)) {
+        pkts_cnt = (uint16_t)RTE_MIN(rte_ring_count(master_fwd_pkt_ex_ring),pkts_cnt);
+    }
 
-    rte_atomic64_add(&fwd_stats.dns_fwd_snd, pkts_len);
-    return pkts_len;
+	rte_atomic64_add(&dns_fwd_snd, pkts_cnt);
+    return pkts_cnt;
 }
 
-
-static void *thread_fwd_pkt_process(){
+static void *thread_fwd_pkt_process(void *arg){
+	(void)arg;
+    struct fwd_pkt_input *etm;
     
-     log_msg(LOG_INFO,"Starting thread_fwd_pkt_process \n");
-     struct fwd_pkt_input *etm ;
-
-     while (1){
-
-        int ret = rte_ring_mc_dequeue(fwd_pkt_to_process_ring, (void **)&etm);
-        if (ret != 0){
-            //100ms
+    log_msg(LOG_INFO,"Starting thread_fwd_pkt_process \n");
+    while (1) {
+        if (rte_ring_mc_dequeue(fwd_pkt_to_process_ring, (void **)&etm) != 0){
             usleep(10);
             continue;
         }
+		rte_atomic64_inc(&dns_fwd_rcv);
 
-        rte_atomic64_inc(&fwd_stats.dns_fwd_rcv);
-        int  fwd_len = do_dns_handle_remote(etm->pkt,etm->old_id,etm->qtype,etm->domain_name);
-        
-        if (unlikely(fwd_len <= 0)){
-            log_msg(LOG_ERR,"can not get rte_mbuf from do_dns_handle_remote\n");
-            rte_pktmbuf_free(etm->pkt);
-            free(etm);
-        }else{
-            int ret = rte_ring_mp_enqueue(master_fwd_pkt_ex_ring, (void*)etm->pkt);
-            if (ret != 0) {
-                log_msg(LOG_ERR,"can not en queue  master_fwd_pkt_ex_ring\n");
-                rte_pktmbuf_free(etm->pkt);      
-            }
-            
-            free(etm); 
-        }
+        do_dns_handle_remote(etm->pkt, etm->old_id, etm->qtype, etm->domain_name);
+        free(etm);
     }
-     return NULL;
-
+    return NULL;
 }
 
 static void do_fwd_cache_expired_cleanup(int idx_start, int idx_end){
@@ -628,7 +636,7 @@ static void do_fwd_cache_expired_cleanup(int idx_start, int idx_end){
 }
 
 static void *thread_fwd_cache_expired_cleanup(void *arg){
-
+	 (void)arg;
      int last_idx = 0;
      int idx_start,idx_end;
      while (1){

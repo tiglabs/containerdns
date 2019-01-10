@@ -35,7 +35,7 @@ process.c
 
 CFLAGS += $(INCLUDE)
 
-CFLAGS += $(WERROR_FLAGS) -g  -lrt  -lpthread
+CFLAGS += $(WERROR_FLAGS) -g -lrt -lpthread -Wno-cast-qual -Wno-unused-function -Wno-deprecated-declarations
 
 CFLAGS += -I$(SRCDIR)/../core/$(RTE_TARGET)/include
 
