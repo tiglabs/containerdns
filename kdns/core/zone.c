@@ -17,6 +17,8 @@
 #include "kdns.h"
 #include "domain_store.h"
 
+#define IP6ADDRLEN	(128/8)
+
 
 uint16_t *
 alloc_rdata_init( const void *data, size_t size)
@@ -68,12 +70,27 @@ zparser_conv_a( const char *text)
 	uint16_t *r = NULL;
 
 	if (inet_pton(AF_INET, text, &address) != 1) {
-		log_msg(LOG_ERR,"invalid IPv4 address '%s'", text);
+		log_msg(LOG_ERR,"invalid IPV4 address '%s'", text);
 	} else {
 		r = alloc_rdata_init( &address, sizeof(address));
 	}
 	return r;
 }
+
+ uint16_t *
+ zparser_conv_aaaa(const char *text)
+ {
+     uint8_t address[IP6ADDRLEN];
+     uint16_t *r = NULL;
+ 
+     if (inet_pton(AF_INET6, text, address) != 1) {
+         log_msg(LOG_ERR,"invalid IPV6 address '%s'", text);
+     } else {
+         r = alloc_rdata_init( address, sizeof(address));
+     }
+     return r;
+ }
+
 
 
  int

@@ -58,10 +58,11 @@ typedef enum rr_section {
 #define TYPE_CNAME	5	/* the canonical name for an alias */
 #define TYPE_SOA	6	/* marks the start of a zone of authority */
 #define TYPE_PTR	12	/* a domain name pointer */
+#define TYPE_AAAA	28	/* ipv6 address */
 #define TYPE_SRV	33	/* SRV record RFC2782 */
 
 
-#define TYPE_SUPPORT_MAX  5
+#define TYPE_SUPPORT_MAX  6
 
 
 #define MAXLABELLEN	63
@@ -297,7 +298,7 @@ label_is_normal(const uint8_t *label)
  * Is LABEL a pointer?
  *
  * Pre: label != NULL;
- ¡£ÈôÊÇÕæÕıµÄÊı¾İ£¬»áÒÔ0x00½áÎ²£»ÈôÊÇÖ¸Õë£¬Ö¸ÕëÕ¼2¸ö×Ö½Ú£¬µÚÒ»¸ö×Ö½ÚµÄ¸ß2Î»Îª11¡£
+ è‹¥æ˜¯çœŸæ­£çš„æ•°æ®ï¼Œä¼šä»¥0x00ç»“å°¾ï¼›è‹¥æ˜¯æŒ‡é’ˆï¼ŒæŒ‡é’ˆå 2ä¸ªå­—èŠ‚ï¼Œç¬¬ä¸€ä¸ªå­—èŠ‚çš„é«˜2ä½ä¸º11ã€‚
  */
 static inline int
 label_is_pointer(const uint8_t *label)

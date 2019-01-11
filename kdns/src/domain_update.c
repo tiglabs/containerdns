@@ -303,7 +303,13 @@ static int send_domain_msg_to_master(struct domin_info_update *msg, int tryNum){
 static inline int ipv4_address_check(const char *str)  
 {  
     struct in_addr addr;  
-    return inet_pton(AF_INET, str, &addr);  
+    return inet_pton(AF_INET, str, (void *)&addr);  
+}
+
+static inline int ipv6_address_check(const char *str)  
+{  
+    struct in6_addr addr6;
+    return inet_pton(AF_INET6, str,  (void *)&addr6);  
 }
 
 
@@ -360,6 +366,8 @@ static struct domin_info_update * do_domaindata_parse(enum db_action   action, j
     snprintf(update->type_str, strlen(value)+1, "%s", value);
     if (strcmp(update->type_str, "A") == 0) {
         update->type = TYPE_A;
+    }else if (strcmp(update->type_str, "AAAA") == 0) {
+        update->type = TYPE_AAAA;
     }else if (strcmp(update->type_str, "PTR") == 0) {
         update->type = TYPE_PTR;
     }else if (strcmp(update->type_str, "CNAME") == 0) {
@@ -371,7 +379,7 @@ static struct domin_info_update * do_domaindata_parse(enum db_action   action, j
           json_decref(json_data);
         goto parse_err;
     }
-    if (update->type == TYPE_A){
+    if ((update->type == TYPE_A) || (update->type == TYPE_AAAA)){
             /* get view name  */
              json_key = json_object_get(json_data, "viewName");
            if (!json_key || !json_is_string(json_key))  {
@@ -404,8 +412,13 @@ static struct domin_info_update * do_domaindata_parse(enum db_action   action, j
                goto parse_err;
            }
            value = json_string_value(json_key);
-           if (ipv4_address_check(value) <= 0){
-               log_msg(LOG_ERR,"host is not an ipv4 addr\n!");
+           if ((update->type == TYPE_A) &&(ipv4_address_check(value) <= 0)){
+               log_msg(LOG_ERR,"host is bad ipv4 addr\n!");
+                 json_decref(json_data);
+               goto parse_err;
+           }
+           if ((update->type == TYPE_AAAA) &&(ipv6_address_check(value) <= 0)){
+               log_msg(LOG_ERR,"host is bad ipv6 addr\n!");
                  json_decref(json_data);
                goto parse_err;
            }
@@ -615,6 +628,12 @@ static void* domains_get( __attribute__((unused)) struct connection_info_struct 
                     "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
                     "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
                     break;    
+                case TYPE_AAAA:
+                    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i}", "type","AAAA",
+                    "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
+                    "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
+                    "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
+                    break; 
                  case TYPE_PTR:
                     value = json_pack("{s:s, s:s, s:s, s:s, s:i, s:i}", "type","PTR",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
@@ -693,6 +712,12 @@ static void* domain_get( __attribute__((unused)) struct connection_info_struct *
                     "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
                     "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
                     break;    
+                case TYPE_AAAA:
+                    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i}", "type","AAAA",
+                    "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
+                    "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
+                    "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
+                    break;
                  case TYPE_PTR:
                     value = json_pack("{s:s, s:s, s:s, s:s, s:i}", "type","PTR",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,

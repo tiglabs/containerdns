@@ -514,6 +514,83 @@ int domaindata_a_delete(struct  domain_store *db,char *zone_name,char *domain_na
    return ret;
 }
 
+
+
+int domaindata_aaaa_insert(struct  domain_store *db,char *zone_name,char *domain_name, char*view_name, char * ip_addr, uint32_t ttl,
+                       uint16_t lb_mode,uint16_t lb_weight,uint32_t maxAnswer ){
+    const domain_name_st *zname = domain_name_parse((const char *)zone_name);
+    const domain_name_st *dname = domain_name_parse((const char *)domain_name);
+    if (zname == NULL || dname == NULL) {
+        log_msg(LOG_ERR," illegal zone name %s or domain name %s\n", zone_name, domain_name);
+        return -1;
+    }
+    /* find zone to go with it, or create it */
+    zone_type *zo = domain_store_find_zone(db, zname);
+    if(!zo) {
+        log_msg(LOG_ERR," not find the zone, zone name %s\n", zone_name);
+        return -1;      
+    }
+
+    rr_type * rr_insert =  (rr_type *) xalloc_zero(sizeof(rr_type));
+    rr_insert->klass          = CLASS_IN;
+    rr_insert->type           = TYPE_AAAA;
+    rr_insert->ttl            = ttl;
+    rr_insert->lb_mode        = lb_mode;
+    rr_insert->lb_weight      = lb_weight;
+    rr_insert->lb_weight_cur  = lb_weight;
+    snprintf(rr_insert->view_name, 32, "%s", view_name);
+    
+    rr_insert->rdatas =  xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
+    uint16_t * dataA = zparser_conv_aaaa(ip_addr);
+
+    rr_insert->rdatas[0].data = dataA;
+    rr_insert->rdata_count =1; 
+
+    rrset_type * rrset =  do_domaindata_insert(db,zo,dname, rr_insert,maxAnswer);
+    if (rrset == NULL){
+        add_rdata_to_recyclebin(rr_insert);
+        free (rr_insert);
+        return -1;
+    }
+
+    free (rr_insert);
+    return 0;
+}
+
+
+int domaindata_aaaa_delete(struct  domain_store *db,char *zone_name,char *domain_name,char* view_name,char * ip_addr, uint32_t ttl){
+    const domain_name_st *zname = domain_name_parse((const char *)zone_name);
+    const domain_name_st *dname = domain_name_parse((const char *)domain_name);
+    if (zname == NULL || dname == NULL) {
+        log_msg(LOG_ERR," illegal zone name %s or domain name %s\n", zone_name, domain_name);
+        return -1;
+    }
+    /* find zone to go with it, or create it */
+    zone_type *zo = domain_store_find_zone(db, zname);
+    if(!zo) {
+        log_msg(LOG_ERR," not find the zone, zone name %s\n", zone_name);
+        return -1;      
+}
+
+    rr_type * rr_del =  (rr_type *) xalloc_zero(sizeof(rr_type));
+    rr_del->klass      = CLASS_IN;
+    rr_del->type       = TYPE_AAAA;
+    rr_del->ttl        = ttl;
+    snprintf(rr_del->view_name, 32, "%s", view_name);
+    
+    rr_del->rdatas =  xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
+    uint16_t * dataA = zparser_conv_aaaa(ip_addr);
+
+    rr_del->rdatas[0].data = dataA;
+    rr_del->rdata_count =1; 
+
+   int ret = do_domaindata_delete(db,zo,dname,rr_del);
+   add_rdata_to_recyclebin( rr_del);
+   free(rr_del);
+   return ret;
+}
+
+
 int domaindata_update(struct  domain_store *db, struct domin_info_update* update){
      if (update->type == TYPE_A){
          if (update->action == DOMAN_ACTION_DEL){
@@ -524,6 +601,16 @@ int domaindata_update(struct  domain_store *db, struct domin_info_update* update
          }else{
             log_msg(LOG_ERR,"err action\n");
             return -2;
+         }
+     }else if (update->type == TYPE_AAAA){
+         if (update->action == DOMAN_ACTION_DEL){         
+             return domaindata_aaaa_delete(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl);          
+         }else if (update->action == DOMAN_ACTION_ADD){
+             return domaindata_aaaa_insert(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl,
+                update->lb_mode,update->lb_weight,update->maxAnswer);
+         }else{
+             log_msg(LOG_ERR,"err action\n");
+             return -2;
          }
      }else if (update->type == TYPE_PTR){
          if (update->action == DOMAN_ACTION_DEL){
