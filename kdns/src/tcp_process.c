@@ -133,9 +133,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
 
     rte_rwlock_read_unlock(&__fwd_lock);
     if (retfwd > 0){
-        uint16_t len = htons(retfwd);
-        memcpy(recv_buf, &len, 2);
-        if(send(respond_sock,recv_buf,retfwd +2,0) == -1){   
+        if(send(respond_sock,recv_buf,retfwd,0) == -1){   
             log_msg(LOG_ERR,"last send error %s\n", domain);
             return -1;
         } 
@@ -149,13 +147,9 @@ static int dns_tcp_recv(int fd, char *buf, int len) {
     while (bytes_transmitted < len) {
         int recv_len = recv(fd, buf + bytes_transmitted, len - bytes_transmitted, 0);
         if (recv_len == -1) {
-            if (errno == EAGAIN || errno == EINTR) {
-                continue;
-            } else {
-                log_msg(LOG_ERR, "call recv len %d error, ret=%d, errno=%d, errinfo=%s\n",
-                    len, recv_len, errno, strerror(errno));
-                return -1;
-            }
+            log_msg(LOG_ERR, "call recv len %d error, ret=%d, errno=%d, errinfo=%s\n",
+                len, recv_len, errno, strerror(errno));
+            return -1;
         } else if (recv_len == 0) {
             /* EOF */
             return 0;
@@ -197,7 +191,18 @@ static void *dns_tcp_process(void *arg) {
         address_size = sizeof(pin);
         temp_sock_descriptor = accept(sock_descriptor, (struct sockaddr *)&pin, &address_size);
         if (temp_sock_descriptor == -1) {
-            log_msg(LOG_ERR,"call  accept error\n");
+            log_msg(LOG_ERR,"call accept error\n");
+            continue;
+        }
+        struct timeval tv = {2, 0};
+        if (setsockopt(temp_sock_descriptor, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+            log_msg(LOG_ERR,"set socket option SO_RCVTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
+            close(temp_sock_descriptor);
+            continue;
+        }
+        if (setsockopt(temp_sock_descriptor, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {
+            log_msg(LOG_ERR,"set socket option SO_SNDTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
+            close(temp_sock_descriptor);
             continue;
         }
         while (1) {
