@@ -15,6 +15,9 @@
 #include "view_update.h"
 #include "tcp_process.h"
 #include "forward.h"
+#include "hashMap.h"
+#include "metrics.h"
+
 
 #define DOMAIN_HASH_SIZE  0x3FFFF
 
@@ -74,23 +77,6 @@ static void domain_info_preprocess(void){
     
     rte_rwlock_init(&domian_list_lock);  
 }
-
-static unsigned int elfHash(char* str, unsigned int len)  
-{  
-   unsigned int hash = 0;  
-   unsigned int x    = 0;  
-   unsigned int i    = 0;  
-   for(i = 0; i < len; str++, i++)  
-   {  
-      hash = (hash << 4) + (*str);  
-      if((x = hash & 0xF0000000L) != 0)  
-      {  
-         hash ^= (x >> 24);  
-      }  
-      hash &= ~x;  
-   }  
-   return hash;  
-}  
 
 
 static void domain_list_ops(struct domin_info_update *msg,unsigned int hashValue ){
@@ -190,7 +176,7 @@ void domain_set_kdns_status(const char* status)
 static void domain_info_store(struct domin_info_update *msg){
 
     rte_rwlock_write_lock(&domian_list_lock);
-    unsigned int  hash_v = elfHash(msg->domain_name, strlen(msg->domain_name));
+    unsigned int  hash_v = elfHashDomain(msg->domain_name);
     domain_list_ops(msg, hash_v);   
 
     rte_rwlock_write_unlock(&domian_list_lock);
@@ -694,7 +680,7 @@ static void* domain_get( __attribute__((unused)) struct connection_info_struct *
     json_t *value = NULL;
 
     
-    unsigned int  hashValue = elfHash(domain, strlen(domain));
+    unsigned int  hashValue = elfHashDomain(domain);
 
     unsigned int hashId  = hashValue&DOMAIN_HASH_SIZE; 
     
@@ -890,6 +876,11 @@ void domian_info_exchange_run( int port){
     web_endpoint_add("GET","/kdns/view",dins,&view_get);
     //web_endpoint_add("GET","/kdns/perview",dins,&domain_get);
     web_endpoint_add("DELETE","/kdns/view",dins,&view_del);
+    
+#ifdef ENABLE_KDNS_FWD_METRICS
+    web_endpoint_add("GET","/kdns/metrics/domains",dins,&metrics_domains_get);
+    web_endpoint_add("GET","/kdns/metrics/clientIp",dins,&metrics_domains_clientIp_get);
+#endif
     
     webserver_run(dins);
     return;   

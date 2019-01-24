@@ -144,6 +144,12 @@ common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
         printf("Cannot read COMMON/zones.\n");
         exit(-1);
     }
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "metrics-host");
+    if (entry) {
+         cfg->metrics_host = strdup(entry);   
+    }else{
+        cfg->metrics_host = strdup("dns-metrics_host ^^"); 
+    }
 }
 
 

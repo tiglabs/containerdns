@@ -29,11 +29,14 @@
 #include "util.h"
 #include "forward.h"
 #include "dns-conf.h"
+#include "hashMap.h"
+#include "metrics.h"
 
 struct fwd_pkt_input {
     struct rte_mbuf *pkt;
     uint16_t old_id;
     uint16_t qtype;
+    uint32_t src_addr;
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
 };
 
@@ -48,14 +51,21 @@ typedef struct domin_fwd_cache{
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
     char  data[EDNS_MAX_MESSAGE_LEN];
     int   data_len;
-    unsigned int     hashValue ;
     uint16_t         qtype;
     time_t time_expired;
-    struct domin_fwd_cache *next;  
 }domin_fwd_cache_st;
 
 
+typedef struct domin_fwd_query_{
+    char  *data;
+    int   *data_len;
+    int    status;
+}domin_fwd_query;
+
+
 #define FORWARD_HASH_SIZE                0x3FFFF
+#define FORWARD_LOCK_SIZE                0xF
+
 // 
 #define FORWARD_CACHE_TIME_OUT_SCAN_NUM  0xFFFF
 
@@ -71,6 +81,8 @@ static domain_fwd_addrs *default_fwd_addrs = NULL ;
 static domain_fwd_addrs **zones_fwd_addrs = NULL ;
 static int g_fwd_zone_num = 0;
 
+rte_rwlock_t __fwd_lock;
+
 
 extern struct rte_mempool *pkt_mbuf_pool;
 struct rte_ring *master_fwd_pkt_ex_ring;
@@ -83,8 +95,10 @@ static void *thread_fwd_pkt_process(void *arg);
 static void *thread_fwd_cache_expired_cleanup(void *arg);
 
 
-static struct domin_fwd_cache *g_fwd_cache_hash_list[FORWARD_HASH_SIZE + 1 ] ;
-static rte_rwlock_t fwd_cache_list_lock;
+//static struct domin_fwd_cache *g_fwd_cache_hash_list[FORWARD_HASH_SIZE + 1 ] ;
+//static rte_rwlock_t fwd_cache_list_lock;
+
+static hashMap *g_fwd_cache_hash = NULL;
 
 static rte_atomic64_t dns_fwd_rcv;	/* Total number of receive forward packets */
 static rte_atomic64_t dns_fwd_snd;	/* Total number of send to client forward packets */
@@ -164,135 +178,93 @@ static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     return tmp_fwd_addrs;
 }
 
-static void fwd_cache_init(void){
-    int i ;
-    for (i=0; i <= FORWARD_HASH_SIZE; i++){
-        g_fwd_cache_hash_list[i] = NULL;
-    }
+static int fwd_check_equal(char *key,void *data, hashNode *node){
     
-    rte_rwlock_init(&fwd_cache_list_lock);  
+    key = key;
+    domin_fwd_cache_st *fwdNode = (domin_fwd_cache_st*) data;
+    domin_fwd_cache_st *fwdNodeChk = (domin_fwd_cache_st*) node->data;
+
+    if (fwdNode->qtype == fwdNodeChk->qtype &&
+            strcmp(fwdNode->domain_name,fwdNodeChk->domain_name)==0){
+            return 1;
+    }
+    return 0;
 }
 
+static int fwd_node_query(hashNode *node, void* output){
 
-static unsigned int elfHash(char* str, unsigned int len)  
-{  
-   unsigned int hash = 0;  
-   unsigned int x    = 0;  
-   unsigned int i    = 0;  
-   for(i = 0; i < len; str++, i++)  
-   {  
-      hash = (hash << 4) + (*str);  
-      if((x = hash & 0xF0000000L) != 0)  
-      {  
-         hash ^= (x >> 24);  
+     domin_fwd_cache_st *fwdNode = (domin_fwd_cache_st*) node->data;
+
+     domin_fwd_query *out = (domin_fwd_query*) output;
+
+        memcpy(out->data, fwdNode->data, fwdNode->data_len);
+        *out->data_len = fwdNode->data_len;
+        if (fwdNode->time_expired > time(NULL)) {
+            if (fwdNode->time_expired < time(NULL) + 10) {
+                out->status = FORWARD_CACHE_NEED_DETECT;
+            } else {
+                 out->status = FORWARD_CACHE_FIND;
       }  
-      hash &= ~x;  
+        } else {
+            fwdNode->time_expired = time(NULL)+ 60;    //will be del or used next 60 second
    }  
-   return hash;  
+        return 1;
 }  
+
+static int do_fwd_cache_expired_check(hashNode *node, void* arg){
+
+    time_t *time_now = (time_t *)arg; 
+    domin_fwd_cache_st *fwdNode = (domin_fwd_cache_st*) node->data;
+    // 60S time_expired,we del it 600s later
+    if (fwdNode->time_expired + 600 < *time_now){
+        printf(" %s time_expired\n",fwdNode->domain_name);
+        return 1;   
+    }   
+    return 0; 
+}
+ 
+    
+
+
+static void fwd_cache_init(void){
+    g_fwd_cache_hash = hashMap_create(FORWARD_HASH_SIZE, FORWARD_LOCK_SIZE, elfHashDomain, 
+        fwd_check_equal, fwd_node_query, do_fwd_cache_expired_check, NULL); 
+    }
 
 
 static void fwd_cache_update(char *domain, uint16_t qtype, char *data, int data_len)
 {
-    domin_fwd_cache_st *find;
- 
-    unsigned int hashValue = elfHash(domain, strlen(domain));
-    unsigned int hashId  = hashValue&FORWARD_HASH_SIZE; 
-    
-    rte_rwlock_write_lock(&fwd_cache_list_lock);
-    find = g_fwd_cache_hash_list[hashId];
-
-    while(find){
-        if (find->hashValue == hashValue &&
-            find->qtype   == qtype &&
-            strcmp(find->domain_name,domain)==0){
-            break;
-        }
-        find = find->next;
-    }
-    if (find == NULL){
-        //add to head
         domin_fwd_cache_st * newNode = xalloc_zero(sizeof(domin_fwd_cache_st));
-        newNode->hashValue = hashValue;
         memcpy(newNode->domain_name,domain,strlen(domain));
         newNode->data_len = data_len;
         newNode->qtype = qtype;
         memcpy(newNode->data,data,data_len);
         newNode->time_expired = time(NULL)+ 60; //second
-        newNode->next = g_fwd_cache_hash_list[hashId];
-        g_fwd_cache_hash_list[hashId] = newNode;
-    } else {
-        find->data_len = data_len;
-        memcpy(find->data,data,data_len);
-        find->time_expired = time(NULL)+ 60;
-    }
-    rte_rwlock_write_unlock(&fwd_cache_list_lock);    
+    hmap_update(g_fwd_cache_hash, domain, (void*)newNode);
 }
 
 
 static void fwd_cache_del(char *domain,uint16_t qtype){
-    domin_fwd_cache_st *pre;
-    domin_fwd_cache_st *find;
-
-    unsigned int  hashValue = elfHash(domain, strlen(domain));
-    unsigned int hashId  = hashValue&FORWARD_HASH_SIZE; 
-
-    rte_rwlock_write_lock(&fwd_cache_list_lock);
-
-    pre = find = g_fwd_cache_hash_list[hashId];
-
-    while(find){
-        if (find->hashValue == hashValue &&
-            find->qtype   == qtype &&
-            strcmp(find->domain_name,domain)==0){
-            break;
-        }
-        pre = find;
-        find = find->next;
-    }
-
-    if (find != NULL && pre != NULL ){
-        pre->next = find->next;
-        if (find == g_fwd_cache_hash_list[hashId]){
-            g_fwd_cache_hash_list[hashId] = find->next;
-        }
-       // free(find->data);
-        free(find);
-    }
-    rte_rwlock_write_unlock(&fwd_cache_list_lock);    
+    domin_fwd_cache_st  delNode;
+    memset((void *)&delNode, 0, sizeof(domin_fwd_cache_st));
+    memcpy(delNode.domain_name,domain,strlen(domain));
+    delNode.qtype = qtype;       
+    hmap_del(g_fwd_cache_hash, domain, (void*)&delNode);
 }
 
 static int fwd_cache_lookup(char *domain, uint16_t qtype, char *cache_data, int *cache_data_len)
 {
-    domin_fwd_cache_st *find;
-    int status = FORWARD_CACHE_NOT_FIND;
-    unsigned int hashValue = elfHash(domain, strlen(domain));
-    unsigned int hashId  = hashValue&FORWARD_HASH_SIZE; 
+    domin_fwd_cache_st  queNode ;
+    memset((void *)&queNode, 0, sizeof(domin_fwd_cache_st));
+    memcpy(queNode.domain_name,domain,strlen(domain));
+    queNode.qtype = qtype;   
 
-    rte_rwlock_read_lock(&fwd_cache_list_lock);
-    find = g_fwd_cache_hash_list[hashId];
-    while (find) {
-        if (find->hashValue == hashValue && find->qtype == qtype && strcmp(find->domain_name, domain) == 0) {
-            break;
-        }
-        find = find->next;
-    }
-    if (find != NULL) {
-        memcpy(cache_data, find->data, find->data_len);
-        *cache_data_len = find->data_len;
-        if (find->time_expired > time(NULL)) {
-            if (find->time_expired < time(NULL) + 10) {
-                status = FORWARD_CACHE_NEED_DETECT;
-            } else {
-                status = FORWARD_CACHE_FIND;
-            }
-        } else {
-            find->time_expired = time(NULL)+ 60;    //will be del or used next 60 second
-            status = FORWARD_CACHE_DATA_EXPIRED;
-        }     
-    }
-    rte_rwlock_read_unlock(&fwd_cache_list_lock);    
-    return status;
+    domin_fwd_query out ;
+    out.data = cache_data;
+    out.data_len =  cache_data_len;
+    out.status   =  FORWARD_CACHE_NOT_FIND;
+    hmap_lookup(g_fwd_cache_hash, domain, (void*)&queNode, &out);    
+    return out.status;
 }
 
 int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
@@ -314,6 +286,10 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
         log_msg(LOG_ERR, "Cannot create ring fwd_pkt_to_process_ring  %s\n", rte_strerror(rte_errno));
         exit(-1);
     }
+
+   #ifdef ENABLE_KDNS_FWD_METRICS
+        fwd_metrics_init();
+   #endif
 
     /* create a separate thread to send task status as quick as possible */
 	rte_atomic64_init(&dns_fwd_rcv);
@@ -548,7 +524,7 @@ static void do_dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t
     }
 }
 
-int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *domain){
+int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,uint32_t src_addr, char *domain){
 
     struct fwd_pkt_input *etm = calloc(sizeof(struct fwd_pkt_input),1);
     if (!etm){
@@ -558,6 +534,7 @@ int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *
     etm->pkt = pkt;
     etm->old_id = old_id;
     etm->qtype = qtype;
+    etm->src_addr =  src_addr;
     memcpy(etm->domain_name,domain,strlen(domain));
     int ret = rte_ring_mp_enqueue(fwd_pkt_to_process_ring, (void*)etm);
     if (ret != 0) {
@@ -591,65 +568,26 @@ static void *thread_fwd_pkt_process(void *arg){
         }
 		rte_atomic64_inc(&dns_fwd_rcv);
 
+        #ifdef ENABLE_KDNS_FWD_METRICS
+        uint64_t  start_time = time_now_usec();
+        #endif
+
         do_dns_handle_remote(etm->pkt, etm->old_id, etm->qtype, etm->domain_name);
+        #ifdef ENABLE_KDNS_FWD_METRICS
+        metrics_domain_update(etm->domain_name, start_time);
+        metrics_domain_clientIp_update(etm->domain_name, start_time, etm->src_addr);
+        #endif
         free(etm);
     }
     return NULL;
 }
 
-static void do_fwd_cache_expired_cleanup(int idx_start, int idx_end){
-
-    domin_fwd_cache_st *pre;
-    domin_fwd_cache_st *node;
-    domin_fwd_cache_st *node_del;
-    int idx = idx_start;
-    time_t time_now = time(NULL);
-    int del_num = 0;
-    int all_num = 0;
-    
-    log_msg(LOG_INFO,"do_fwd_cache_expired_cleanup  enter\n");
-    
-    rte_rwlock_write_lock(&fwd_cache_list_lock);
-    for (;idx < idx_end ;idx ++){
-        pre = node = g_fwd_cache_hash_list[idx];
-
-        while(node){ 
-            all_num++;
-            // 60S time_expired,we del it 3600s later
-            if (node->time_expired + 3600 < time_now){
-                pre->next = node->next;
-                if (node == g_fwd_cache_hash_list[idx]){
-                    g_fwd_cache_hash_list[idx] = node->next;
-                }
-                node_del = node;
-                node = node->next;
-                free(node_del);
-                del_num++;
-                continue;
-            }      
-            pre = node;
-            node = node->next;
-        }
-    }
-    rte_rwlock_write_unlock(&fwd_cache_list_lock);   
-    log_msg(LOG_INFO,"idx[%d : %d ]: %d record scaned and %d deleted\n",idx_start,idx_end,all_num,del_num);
-}
-
 static void *thread_fwd_cache_expired_cleanup(void *arg){
 	 (void)arg;
-     int last_idx = 0;
-     int idx_start,idx_end;
      while (1){
         sleep(600);
-        idx_start = last_idx;
-        if (idx_start + FORWARD_CACHE_TIME_OUT_SCAN_NUM > FORWARD_HASH_SIZE){
-            idx_end = FORWARD_HASH_SIZE;
-            last_idx = 0;
-         }else{
-             idx_end = idx_start + FORWARD_CACHE_TIME_OUT_SCAN_NUM;
-             last_idx = idx_end;       
-         }     
-         do_fwd_cache_expired_cleanup( idx_start,idx_end );     
+        time_t time_now = time(NULL);
+        hmap_check_expired(g_fwd_cache_hash, (void*)&time_now);     
     }
      return NULL;
 

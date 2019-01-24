@@ -444,8 +444,7 @@ void dns_dpdk_init(void){
 
 	log_msg(LOG_INFO,"Supported flow types:\n");
 	char *p;
-	for (i = RTE_ETH_FLOW_UNKNOWN + 1; i < RTE_ETH_FLOW_MAX;
-							i++) {
+	for (i = RTE_ETH_FLOW_UNKNOWN + 1; i < RTE_ETH_FLOW_MAX;i++) {
 		if (!(dev_info.flow_type_rss_offloads & (1ULL << i)))
 			continue;
 		p = flowtype_to_str(i);

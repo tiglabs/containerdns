@@ -19,6 +19,7 @@ STATIC_LIBS += $(DEPDIR)/libjansson/src/.libs/libjansson.a
 # binary name
 APP = kdns
 
+KDNS_FWD_METRICS = true
 # all source are stored in SRCS-y
 SRCS-y := main.c\
 dns-conf.c \
@@ -31,7 +32,13 @@ domain_update.c \
 view_update.c \
 kdns-adap.c \
 tcp_process.c \
-process.c	
+process.c\
+hashMap.c\
+metrics.c	
+
+ifdef KDNS_FWD_METRICS
+CFLAGS += -DENABLE_KDNS_FWD_METRICS
+endif
 
 CFLAGS += $(INCLUDE)
 

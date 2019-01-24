@@ -31,6 +31,7 @@ struct comm_config {
      char *key_pem_file;
      char *cert_pem_file;
      uint16_t    web_port;
+     char * metrics_host;
 };
 
 

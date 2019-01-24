@@ -11,7 +11,8 @@
 
 #define FWD_MAX_DOMAIN_NAME_LEN  255
 
-rte_rwlock_t __fwd_lock;
+extern rte_rwlock_t __fwd_lock;
+
 
 typedef struct {
    struct sockaddr *addr;
@@ -25,7 +26,7 @@ typedef struct {
  } domain_fwd_addrs;
 
 int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads);
-int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,char *domain);
+int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,uint32_t src_addr, char *domain);
 uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_cnt);
 domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name);
 int dns_tcp_process_init(char *ip);
