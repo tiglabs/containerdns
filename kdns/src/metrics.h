@@ -6,6 +6,14 @@
 #include "webserver.h"
 
 
+typedef struct metrics_metrics{
+	uint64_t minTime     ;  
+	uint64_t maxTime     ;    
+	uint64_t timeSum     ;    
+	uint64_t metrics  [4];
+}metrics_metrics_st;
+
+
 uint64_t time_now_usec(void);
 void fwd_metrics_init(void);
 
@@ -18,6 +26,7 @@ void* metrics_domains_get( __attribute__((unused)) struct connection_info_struct
 void* metrics_domains_clientIp_get( __attribute__((unused)) struct connection_info_struct *con_info,
     __attribute__((unused))char *url, int * len_response);
 
+void metrics_data_update(  metrics_metrics_st* metrics,uint64_t diff_us);
 
 #endif  /*_METRICS_H_*/
 

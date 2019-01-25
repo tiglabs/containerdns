@@ -6,6 +6,7 @@
 #include <rte_mempool.h>
 #include <rte_udp.h>
 #include <rte_ip.h>
+#include "metrics.h"
 
 
 #define NETIF_MAX_PKT_BURST         32
@@ -32,8 +33,16 @@ struct netif_queue_stats
     uint64_t dns_lens_rcv; /* Total lens of  received packets. */
     uint64_t dns_lens_snd; /* Total lens of  transmitted packets. */
 
-    uint64_t dns_fwd_rcv; /* Total number of receive forward packets */
-    uint64_t dns_fwd_snd; /* Total number of send to client forward packets */
+    uint64_t dns_fwd_rcv_udp; /* Total number of receive forward packets */
+    uint64_t dns_fwd_snd_udp; /* Total number of send to client forward packets */
+
+
+    uint64_t dns_fwd_rcv_tcp ;
+    uint64_t dns_fwd_snd_tcp  ;
+    uint64_t dns_pkts_rcv_tcp ;
+    uint64_t dns_pkts_snd_tcp ;
+
+    metrics_metrics_st metrics;   
        
 } __rte_cache_aligned;
 
@@ -67,6 +76,8 @@ struct net_device {
 //extern struct net_device  kdns_net_device;
 void netif_statsdata_get(struct netif_queue_stats *sta);
 void netif_statsdata_reset(void);
+void netif_statsdata_metrics_reset(void);
+
 
 
 int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf);

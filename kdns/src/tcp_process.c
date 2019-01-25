@@ -40,10 +40,10 @@ struct netif_queue_stats tcp_stats;
 
 void tcp_statsdata_get(struct netif_queue_stats *sta)
 {
-    sta->dns_fwd_rcv = tcp_stats.dns_fwd_rcv;
-    sta->dns_fwd_snd = tcp_stats.dns_fwd_snd;
-    sta->dns_pkts_rcv = tcp_stats.dns_pkts_rcv;
-    sta->dns_pkts_snd = tcp_stats.dns_pkts_snd;
+    sta->dns_fwd_rcv_tcp = tcp_stats.dns_fwd_rcv_tcp;
+    sta->dns_fwd_snd_tcp = tcp_stats.dns_fwd_snd_tcp;
+    sta->dns_pkts_rcv_tcp = tcp_stats.dns_pkts_rcv_tcp;
+    sta->dns_pkts_snd_tcp = tcp_stats.dns_pkts_snd_tcp;
 
     return;
 }
@@ -113,7 +113,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
     int retfwd = 0;
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
 
-    tcp_stats.dns_fwd_rcv++;
+    tcp_stats.dns_fwd_rcv_tcp++;
     rte_rwlock_read_lock(&__fwd_lock);
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
@@ -137,7 +137,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
             log_msg(LOG_ERR,"last send error %s\n", domain);
             return -1;
         } 
-        tcp_stats.dns_fwd_snd++;
+        tcp_stats.dns_fwd_snd_tcp++;
     }  
     return 0;   
 }
@@ -263,7 +263,7 @@ static void *dns_tcp_process(void *arg) {
                 continue;
             }
 
-            tcp_stats.dns_pkts_rcv++;
+            tcp_stats.dns_pkts_rcv_tcp++;
             int retLen = buffer_remaining(query_tcp->packet);
             if (retLen > 0) {
                 uint16_t len = htons(retLen);
@@ -272,7 +272,7 @@ static void *dns_tcp_process(void *arg) {
                     log_msg(LOG_ERR,"response query %s to %s, send error, errno=%d, errinfo=%s\n",
                         (char *)domain_name_to_string(query_tcp->qname, NULL), inet_ntoa(pin.sin_addr), errno, strerror(errno));
                 }
-                tcp_stats.dns_pkts_snd++;
+                tcp_stats.dns_pkts_snd_tcp++;
             }
         }
     }

@@ -774,66 +774,29 @@ static void* kdns_status_get(__attribute__((unused)) struct connection_info_stru
 }
 
 
-struct json_stats_strings
-{
-    char  domain_num[32]; 
-    char  pkts_rcv[32];  
-    char  pkts_2kni[32]; 
-    char  pkts_icmp[32]; 
-    char dns_pkts_rcv[32]; 
-    char dns_pkts_snd[32]; 
-    char dns_lens_rcv[32]; 
-    char dns_lens_snd[32];
-    char pkt_dropped[32];
-    char pkt_len_err[32];
-    char tcp_pkts_rcv[32];
-    char tcp_pkts_snd[32];
-    char tcp_fwd_rcv[32];
-    char tcp_fwd_snd[32];
-    char udp_fwd_rcv[32];
-    char udp_fwd_snd[32];
-};
-
 static void* statistics_get( __attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused))char *url,int * len_response)
 {
     struct netif_queue_stats sta ={0};
     netif_statsdata_get(&sta);
-
-    struct json_stats_strings sta_string ={"","","","","","","","","","","","","","","",""};
-
-    sprintf(sta_string.domain_num,"%d",domain_num_get());
-    sprintf(sta_string.pkts_rcv,"%ld",sta.pkts_rcv);
-    sprintf(sta_string.dns_pkts_rcv,"%ld",sta.dns_pkts_rcv);
-    sprintf(sta_string.dns_pkts_snd,"%ld",sta.dns_pkts_snd);
-    sprintf(sta_string.dns_lens_rcv,"%ld",sta.dns_lens_rcv);
-    sprintf(sta_string.dns_lens_snd,"%ld",sta.dns_lens_snd);
-    sprintf(sta_string.pkt_dropped,"%ld",sta.pkt_dropped);
-    sprintf(sta_string.pkts_2kni,"%ld",sta.pkts_2kni);
-    sprintf(sta_string.pkts_icmp,"%ld",sta.pkts_icmp);
-    sprintf(sta_string.pkt_len_err,"%ld",sta.pkt_len_err);
-
-    memset(&sta, 0, sizeof(sta));
     tcp_statsdata_get(&sta);
-    sprintf(sta_string.tcp_pkts_rcv, "%ld", sta.dns_pkts_rcv);
-    sprintf(sta_string.tcp_pkts_snd, "%ld", sta.dns_pkts_snd);
-    sprintf(sta_string.tcp_fwd_rcv, "%ld", sta.dns_fwd_rcv);
-    sprintf(sta_string.tcp_fwd_snd, "%ld", sta.dns_fwd_snd);
-
-    memset(&sta, 0, sizeof(sta));
     fwd_statsdata_get(&sta);
-    sprintf(sta_string.udp_fwd_rcv, "%ld", sta.dns_fwd_rcv);
-    sprintf(sta_string.udp_fwd_snd, "%ld", sta.dns_fwd_snd);
-
     json_t *value = NULL;
     
-    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s}",
-            "domain_num",sta_string.domain_num, "pkts_rcv",sta_string.pkts_rcv,
-            "dns_pkts_rcv",sta_string.dns_pkts_rcv,"dns_pkts_snd",sta_string.dns_pkts_snd,"pkt_dropped",sta_string.pkt_dropped,
-            "pkts_2kni",sta_string.pkts_2kni,"pkts_icmp",sta_string.pkts_icmp,"pkt_len_err",sta_string.pkt_len_err,
-            "dns_lens_rcv",sta_string.dns_lens_rcv,"dns_lens_snd",sta_string.dns_lens_snd,
-            "tcp_pkts_rcv", sta_string.tcp_pkts_rcv, "tcp_pkts_snd", sta_string.tcp_pkts_snd,
-            "tcp_fwd_rcv", sta_string.tcp_fwd_rcv, "tcp_fwd_snd", sta_string.tcp_fwd_snd,
-            "udp_fwd_rcv", sta_string.udp_fwd_rcv, "udp_fwd_snd", sta_string.udp_fwd_snd);
+    value = json_pack("{s:i, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
+            s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
+            s:f, s:f, s:f}",
+            "domain_num",domain_num_get(), "pkts_rcv",(float)sta.pkts_rcv,
+            "dns_pkts_rcv",(float)sta.dns_pkts_rcv, "dns_pkts_snd",(float)sta.dns_pkts_snd,
+            "pkt_dropped",(float)sta.pkt_dropped,"pkts_2kni",(float)sta.pkts_2kni,
+            "pkts_icmp",(float)sta.pkts_icmp,"pkt_len_err",(float)sta.pkt_len_err,
+            "dns_lens_rcv",(float)sta.dns_lens_rcv,"dns_lens_snd",(float)sta.dns_lens_snd,
+            "tcp_pkts_rcv", (float)sta.dns_pkts_rcv_tcp, "tcp_pkts_snd", (float)sta.dns_pkts_snd_tcp,
+            "tcp_fwd_rcv", (float)sta.dns_fwd_rcv_tcp, "tcp_fwd_snd", (float)sta.dns_fwd_snd_tcp,
+            "udp_fwd_rcv", (float)sta.dns_fwd_rcv_udp, "udp_fwd_snd", (float)sta.dns_fwd_snd_udp,
+            "metrics-maxtime", (float)sta.metrics.maxTime, "metrics-mintime", (float)sta.metrics.minTime,
+            "metrics-sumtime", (float)sta.metrics.timeSum, "metrics1", (float)sta.metrics.metrics[0],
+            "metrics2", (float)sta.metrics.metrics[1], "metrics3", (float)sta.metrics.metrics[2],
+            "metrics4", (float)sta.metrics.metrics[3]);
     
     if (!value){
            char * err = strdup("json_pack err");
@@ -857,6 +820,15 @@ static void* statistics_reset( __attribute__((unused)) struct connection_info_st
     return (void* )post_ok;
 }
 
+
+static void* local_metrics_reset( __attribute__((unused)) struct connection_info_struct *con_info,__attribute__((unused))char *url, int * len_response)
+{
+    char * post_ok = strdup("OK\n");
+    netif_statsdata_metrics_reset();
+    *len_response = strlen(post_ok);
+    return (void* )post_ok;
+}
+
 void domian_info_exchange_run( int port){
     
     dins = webserver_new(port);
@@ -876,6 +848,8 @@ void domian_info_exchange_run( int port){
     web_endpoint_add("GET","/kdns/view",dins,&view_get);
     //web_endpoint_add("GET","/kdns/perview",dins,&domain_get);
     web_endpoint_add("DELETE","/kdns/view",dins,&view_del);
+    
+    web_endpoint_add("POST","/kdns/metrics/resetlocal",dins,&local_metrics_reset);
     
 #ifdef ENABLE_KDNS_FWD_METRICS
     web_endpoint_add("GET","/kdns/metrics/domains",dins,&metrics_domains_get);
