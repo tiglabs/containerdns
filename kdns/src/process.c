@@ -112,7 +112,7 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
 
             if(GET_RCODE(query->packet) == RCODE_REFUSE ) {
                    memcpy(bufdata + 2, &flags_old, 2);  
-                   dns_handle_remote(pkt,GET_ID(query->packet),query->qtype,(char *)domain_name_to_string(query->qname, NULL));
+                   dns_handle_remote(pkt,GET_ID(query->packet),query->qtype, ip_hdr_in->src_addr , (char *)domain_name_to_string(query->qname, NULL));
                   return 0;
             }
             if(query != NULL && retLen > 0) {
