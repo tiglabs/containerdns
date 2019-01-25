@@ -23,14 +23,6 @@
 #define METRICS_MAX_NAME_LEN  255
 
 
-typedef struct metrics_metrics{
-	uint64_t minTime     ;  
-	uint64_t maxTime     ;    
-	uint64_t timeSum     ;    
-	uint64_t metrics  [4];
-}metrics_metrics_st;
-
-
 // domain query metrics 
 typedef struct metrics_domain{
 	uint64_t requestCount  ;       
@@ -78,6 +70,28 @@ static int metrics_check_equal(char *key, __attribute__((unused)) void *data, ha
     return 0;
 }
 
+void metrics_data_update(  metrics_metrics_st* metrics,uint64_t diff_us){
+
+     if (diff_us > metrics->maxTime){
+        metrics->maxTime = diff_us;     
+     }
+     if (diff_us < metrics->minTime){
+        metrics->minTime = diff_us;     
+     }
+     // 10 us
+     if (diff_us <= 10){
+        metrics->metrics[0]++;   
+     }else if((10 < diff_us) && (diff_us <= 100)){
+         metrics->metrics[1]++; 
+     }else if((100 < diff_us) && (diff_us <= 1000)){
+         metrics->metrics[2]++; 
+     }else{
+         metrics->metrics[3]++; 
+     }
+     metrics->timeSum += diff_us;
+     return;
+}
+
 
 static int metrics_domain_query(hashNode *node, void* input){
 
@@ -89,24 +103,7 @@ static int metrics_domain_query(hashNode *node, void* input){
      uint64_t diff = time_now - *p_time_start;
      mNode->requestCount++;
      mNode->lastQueryTime = time_now;
-     mNode->metrics.timeSum += diff;
-
-     if (diff > mNode->metrics.maxTime){
-        mNode->metrics.maxTime = diff;     
-     }
-     if (diff < mNode->metrics.minTime){
-        mNode->metrics.minTime = diff;     
-     }
-     // 10 us
-     if (diff <= 10){
-        mNode->metrics.metrics[0]++;   
-     }else if((10 < diff) && (diff <= 100)){
-         mNode->metrics.metrics[1]++; 
-     }else if((100 < diff) && (diff <= 1000)){
-         mNode->metrics.metrics[2]++; 
-     }else{
-         mNode->metrics.metrics[3]++; 
-     }
+     metrics_data_update(&mNode->metrics, diff);
      return 1;
 }
 

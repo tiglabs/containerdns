@@ -105,8 +105,8 @@ static rte_atomic64_t dns_fwd_snd;	/* Total number of send to client forward pac
 
 void fwd_statsdata_get(struct netif_queue_stats *sta)
 {
-	sta->dns_fwd_rcv = rte_atomic64_read(&dns_fwd_rcv);
-	sta->dns_fwd_snd = rte_atomic64_read(&dns_fwd_snd);
+	sta->dns_fwd_rcv_udp = rte_atomic64_read(&dns_fwd_rcv);
+	sta->dns_fwd_snd_udp = rte_atomic64_read(&dns_fwd_snd);
     return;
 }
 

@@ -457,6 +457,11 @@ void dns_dpdk_init(void){
 
 
  int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) { 
+
+#ifdef ENABLE_KDNS_METRICS
+     uint64_t start_time = time_now_usec();
+#endif
+
     struct ether_hdr *eth_hdr = NULL;
     conf->stats.pkts_rcv++;
     eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr *); 
@@ -471,6 +476,10 @@ void dns_dpdk_init(void){
         conf->kni_len ++;
         break;
     }
+
+#ifdef ENABLE_KDNS_METRICS
+     metrics_data_update( &conf->stats.metrics,  time_now_usec() - start_time);
+#endif
     return 0;
  }
     
@@ -518,6 +527,20 @@ void netif_statsdata_get(struct netif_queue_stats *sta){
         sta->dns_lens_snd +=  sta_lcore->dns_lens_snd;
         sta->pkt_dropped      +=  sta_lcore->pkt_dropped;
         sta->pkt_len_err  +=  sta_lcore->pkt_len_err;
+
+        #ifdef ENABLE_KDNS_METRICS
+            sta->metrics.timeSum +=  sta_lcore->metrics.timeSum;
+            sta->metrics.metrics[0] +=  sta_lcore->metrics.metrics[0];
+            sta->metrics.metrics[1] +=  sta_lcore->metrics.metrics[1];
+            sta->metrics.metrics[2] +=  sta_lcore->metrics.metrics[2];
+            sta->metrics.metrics[3] +=  sta_lcore->metrics.metrics[3];
+            if (sta->metrics.minTime > sta_lcore->metrics.minTime){
+                sta->metrics.minTime = sta_lcore->metrics.minTime;
+            }
+            if (sta->metrics.maxTime < sta_lcore->metrics.maxTime){
+                sta->metrics.maxTime = sta_lcore->metrics.maxTime;
+            } 
+        #endif
     }  
     return;
 }
@@ -541,6 +564,16 @@ void netif_statsdata_reset(void){
 }
 
 
+void netif_statsdata_metrics_reset(void){
+    unsigned lcore_id;
+    struct netif_queue_stats *sta_lcore;
+    RTE_LCORE_FOREACH_SLAVE(lcore_id) {  
+        sta_lcore = &kdns_net_device.l_netif_queue_conf[lcore_id].stats;
+        memset(&sta_lcore->metrics, 0 ,sizeof(metrics_metrics_st)) ;
+        sta_lcore->metrics.minTime = 0xffff;
+    }  
+    return;
+}
 
 
 void init_eth_header(struct ether_hdr *eth_hdr, struct ether_addr *src_mac, \
