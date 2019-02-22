@@ -96,7 +96,7 @@ static void signal_handler(int sig)
         default:
             log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
     }
-    rte_pdump_uninit();
+    //rte_pdump_uninit();
 }
 
 
