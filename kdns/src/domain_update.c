@@ -579,6 +579,10 @@ static void* domains_post_all(struct connection_info_struct *con_info ,__attribu
     return domaindata_parse_all(DOMAN_ACTION_ADD,con_info,len_response);
 }
 
+static void* domains_delete_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){
+    return domaindata_parse_all(DOMAN_ACTION_DEL,con_info,len_response);
+}
+
 
 static void* domain_del(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){   
     return domaindata_parse(DOMAN_ACTION_DEL,con_info,len_response);
@@ -837,6 +841,7 @@ void domian_info_exchange_run( int port){
     web_endpoint_add("GET","/kdns/domain",dins,&domains_get);
     web_endpoint_add("GET","/kdns/perdomain/",dins,&domain_get);
     web_endpoint_add("DELETE","/kdns/domain",dins,&domain_del);
+    web_endpoint_add("DELETE","/kdns/alldomains",dins,&domains_delete_all);
 
     web_endpoint_add("POST","/kdns/status",dins,&kdns_status_post);
     web_endpoint_add("GET","/kdns/status",dins,&kdns_status_get);
@@ -849,6 +854,9 @@ void domian_info_exchange_run( int port){
     //web_endpoint_add("GET","/kdns/perview",dins,&domain_get);
     web_endpoint_add("DELETE","/kdns/view",dins,&view_del);
     
+    web_endpoint_add("POST","/kdns/allview",dins,&views_post_all);
+    web_endpoint_add("DELETE","/kdns/allview",dins,&views_delete_all);
+
     web_endpoint_add("POST","/kdns/metrics/resetlocal",dins,&local_metrics_reset);
     
 #ifdef ENABLE_KDNS_FWD_METRICS

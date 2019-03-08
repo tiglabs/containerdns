@@ -20,7 +20,7 @@ static view_tree_t * view_tree_master = NULL;
 static rte_rwlock_t view_lock_master;
 
 
-static void send_view_msg_to_master(struct view_info_update *msg){ 
+static int send_view_msg_to_master(struct view_info_update *msg, int tryNum){ 
     
     unsigned cid_master = rte_get_master_lcore();
     
@@ -28,15 +28,25 @@ static void send_view_msg_to_master(struct view_info_update *msg){
     int res = rte_ring_enqueue(view_msg_ring[cid_master],(void *) msg);
 
     if (unlikely(-EDQUOT == res)) {
+        if (tryNum == 0){
         log_msg(LOG_ERR," msg_ring of master lcore %d quota exceeded\n", cid_master);
+        }
+        free (msg);
+        return -1;
    } else if (unlikely(-ENOBUFS == res)) {
+        if (tryNum == 0){
         log_msg(LOG_ERR," msg_ring of master lcore %d is full\n", cid_master);
+        }
         free(msg);
+        return -1;
    } else if (res) {
+        if (tryNum == 0){
         log_msg(LOG_ERR,"unkown error %d for rte_ring_enqueue master lcore %d\n", res,cid_master);
+        }
         free(msg);
+        return -1;
    } 
-   return ;
+   return 0;
 }
 
 
@@ -90,9 +100,101 @@ static void* view_parse(enum view_action   action,struct connection_info_struct 
     view_name = json_string_value(json_key);
     snprintf(update->cidrs, strlen(view_name)+1, "%s", view_name);
 
-    send_view_msg_to_master(update);
+    send_view_msg_to_master(update,1);
     
     json_decref(json_response);
+
+    return post_ok;
+
+ parse_err:   
+   parseErr = strdup("parse data err\n");
+    *len_response = strlen(parseErr);
+    return (void* )parseErr;
+}
+
+static struct view_info_update * do_view_parse(enum view_action action, json_t *json_data){
+
+    struct view_info_update *update = calloc(1,sizeof(struct view_info_update));
+    update->action = action;
+    const char * view_name ;
+
+     /* get view name  */
+     json_t *json_key = json_object_get(json_data, "viewName");
+     if (!json_key || !json_is_string(json_key))  {
+         log_msg(LOG_ERR,"viewName does not exist or is not string!");
+         json_decref(json_data);
+         goto parse_err;
+     }
+     view_name = json_string_value(json_key);
+     snprintf(update->view_name, strlen(view_name)+1, "%s", view_name);
+     
+     /* get cidrs  */
+     json_key = json_object_get(json_data, "cidrs");
+     if (!json_key || !json_is_string(json_key))  {
+         log_msg(LOG_ERR,"view cidrs does not exist or is not string!");
+         json_decref(json_data);
+         goto parse_err;
+     }
+     view_name = json_string_value(json_key);
+     snprintf(update->cidrs, strlen(view_name)+1, "%s", view_name);
+     return update;
+     
+ parse_err:
+     free(update);
+     return NULL;
+}
+
+
+
+
+static void* view_parse_all(enum view_action action,struct connection_info_struct *con_info , int * len_response)
+{
+    char * post_ok = strdup("OK\n");
+    char * parseErr = NULL;
+    *len_response = strlen(post_ok);
+    
+    json_error_t jerror;
+     
+    json_t *json_response = json_loads(con_info->uploaddata, 0, &jerror); 
+    if (!json_response) {
+        log_msg(LOG_ERR,"load json string  failed: %s %s (line %d, col %d)\n",
+                jerror.text, jerror.source, jerror.line, jerror.column);
+        goto parse_err;
+    }
+
+    if (!json_is_array(json_response)){
+        log_msg(LOG_ERR, "load json string failed: not an array!");
+        json_decref(json_response);
+        goto parse_err;
+    }
+    size_t domains_count = json_array_size(json_response);    
+    size_t i_num;
+    
+    for (i_num = 0; i_num < domains_count; i_num++){
+        struct view_info_update *update;
+        int retry_num = 5;
+        int ret = 0;
+        json_t *array_elem = json_array_get(json_response, i_num);
+        if (!json_is_object(array_elem)) {
+            log_msg(LOG_ERR,"load json string failed: not an object!\n");
+            json_decref(array_elem);
+            goto parse_err;
+        }
+        
+retry:
+        update = do_view_parse(action, array_elem);
+        if (update != NULL) {
+             ret = send_view_msg_to_master(update,retry_num);
+             if ((ret <0) && (retry_num >0)){
+                retry_num--;
+                //100ms
+                usleep(200000);
+                goto retry;
+             }
+             json_decref(array_elem);
+        }    
+    }
+   // log_msg(LOG_INFO, "%d domains insert\n",domains_count);
 
     return post_ok;
 
@@ -120,6 +222,14 @@ void* view_post(struct connection_info_struct *con_info ,__attribute__((unused))
 
  void* view_del(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){   
     return view_parse(ACTION_DEL,con_info,len_response);
+}
+
+void* views_post_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){
+    return view_parse_all(ACTION_ADD,con_info,len_response);
+}
+
+void* views_delete_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response){
+    return view_parse_all(ACTION_DEL,con_info,len_response);
 }
 
 static void do_view_info_get(void * arg1,view_value_t * data){

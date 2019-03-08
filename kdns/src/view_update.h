@@ -27,6 +27,9 @@ void view_msg_master_process(void);
 void view_msg_ring_create(void);
 void* view_post(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response);
 void* view_del(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response);
+void* views_post_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response);
+void* views_delete_all(struct connection_info_struct *con_info ,__attribute__((unused))char *url, int * len_response);
+
 void* view_get( __attribute__((unused)) struct connection_info_struct *con_info, char* url, int * len_response);
 void  view_query_tcp(struct query *query_tcp);
 

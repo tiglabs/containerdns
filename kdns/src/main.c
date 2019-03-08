@@ -78,7 +78,7 @@ static void signal_handler(int sig)
         case SIGHUP:
             log_msg(LOG_INFO, "Program hanged up @@@.");
             config_reload_proc(dns_cfgfile);
-            break;
+            return;
         case SIGPIPE:
             log_msg(LOG_ERR, "SIGPIPE @@@.");
             break;
@@ -96,7 +96,7 @@ static void signal_handler(int sig)
         default:
             log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
     }
-    //rte_pdump_uninit();
+    rte_pdump_uninit();
 }
 
 
