@@ -126,7 +126,7 @@ static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     char fwd_addrs[512] = {0};
     zone_fwd_input_tmp * fwd_input_tmp = NULL;
 
-    if (!addrs){
+    if (!addrs || strlen(addrs) == 0) {
         return NULL;
     }
     strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
@@ -630,14 +630,12 @@ int fwd_addrs_reload(char *addrs)
         return -1;
 
     new_fwd_addrs = parse_dns_fwd_zones(addrs, &new_zone_num);
-    if (new_fwd_addrs) {
-        rte_rwlock_write_lock(&__fwd_lock);
-        old_fwd_addrs = zones_fwd_addrs;
-        zones_fwd_addrs = new_fwd_addrs;
-        old_zone_num = g_fwd_zone_num;
-        g_fwd_zone_num = new_zone_num;
-        rte_rwlock_write_unlock(&__fwd_lock);
-    }
+    rte_rwlock_write_lock(&__fwd_lock);
+    old_fwd_addrs = zones_fwd_addrs;
+    zones_fwd_addrs = new_fwd_addrs;
+    old_zone_num = g_fwd_zone_num;
+    g_fwd_zone_num = new_zone_num;
+    rte_rwlock_write_unlock(&__fwd_lock);
 
     if (old_fwd_addrs) {
         for (index = 0; index < old_zone_num; index++) {

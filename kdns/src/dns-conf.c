@@ -93,7 +93,7 @@ common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
     if (entry) {
          cfg->fwd_addrs = strdup(entry);   
     }else{
-        cfg->fwd_addrs = NULL; 
+        cfg->fwd_addrs = strdup("");
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-thread-num");
@@ -272,7 +272,7 @@ common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
     if (entry) {
          cfg->fwd_addrs = strdup(entry);
     }else{
-        cfg->fwd_addrs = NULL;
+        cfg->fwd_addrs = strdup("");
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "zones");
@@ -389,9 +389,7 @@ static int config_fwd_addrs_reload_proc(void)
             return ret;
         }
 
-        if (g_dns_cfg->comm.fwd_addrs)
-            free(g_dns_cfg->comm.fwd_addrs);
-
+        free(g_dns_cfg->comm.fwd_addrs);
         g_dns_cfg->comm.fwd_addrs = g_reload_dns_cfg->comm.fwd_addrs;
         g_reload_dns_cfg->comm.fwd_addrs = NULL;
 
