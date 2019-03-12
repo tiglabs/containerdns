@@ -263,7 +263,7 @@ int process_slave(__attribute__((unused)) void *arg) {
     while (1){
         zones_reload_pre_core();
         view_msg_slave_process();
-        doman_msg_slave_process();
+        domain_msg_slave_process();
         struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST] ={0};
         uint16_t rx_count;
     
@@ -321,7 +321,7 @@ void process_master(__attribute__((unused)) void *arg) {
 
         zones_reload_pre_core();
         view_msg_master_process();
-        doman_msg_master_process();
+        domain_msg_master_process();
         uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx,NETIF_MAX_PKT_BURST);
         if (rx_count == 0){
             rte_kni_tx_burst(master_kni,NULL , 0); 

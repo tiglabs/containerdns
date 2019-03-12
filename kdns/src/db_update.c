@@ -37,7 +37,7 @@ static rrset_type *  do_domaindata_insert(struct  domain_store *db,zone_type * z
 
         /* Search for possible duplicates... */
         for (i = 0; i < rrset->rr_count; i++) {
-            if (!zrdatacmp(rr->type, rr, &rrset->rrs[i])) {
+            if (!zrdatacmp(rr->type, rr, &rrset->rrs[i]) && !strcmp(rrset->rrs[i].view_name, rr->view_name)) {
                 break;
             }
         }
@@ -80,7 +80,7 @@ static int  do_domaindata_delete(struct  domain_store *db,zone_type * zo,const d
         int rrnum;
         /* Search for the val ... */
         for (rrnum = 0; rrnum < rrset->rr_count; rrnum ++) {
-            if (!zrdatacmp(rr->type, rr, &rrset->rrs[rrnum])) {
+            if (!zrdatacmp(rr->type, rr, &rrset->rrs[rrnum]) && !strcmp(rrset->rrs[rrnum].view_name, rr->view_name)) {
                 break;
             }
         }
