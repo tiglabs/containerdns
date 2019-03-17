@@ -19,8 +19,7 @@ sync-period: 120
 dns-domains: test.local.%tt.local
 
 kdns-servers:
-  - kdns-url: http://192.168.253.51:5500/kdns/domain  
-    kdns-status-url: http://192.168.253.51:5500/kdns/status
+  - kdns-url: http://192.168.253.51:5500
     dns-certfile: ""
     dns-keyfile: ""
     dns-cafile: 
