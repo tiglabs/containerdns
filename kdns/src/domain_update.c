@@ -616,7 +616,7 @@ static void* domains_get( __attribute__((unused)) struct connection_info_struct 
                 case TYPE_A:
                     value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i}", "type","A",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
-                    "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
+                    "viewName",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
                     "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
                     break;    
                 case TYPE_AAAA:
@@ -700,7 +700,7 @@ static void* domain_get( __attribute__((unused)) struct connection_info_struct *
                 case TYPE_A:
                     value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i}", "type","A",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
-                    "view",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
+                    "viewName",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer,
                     "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
                     break;    
                 case TYPE_AAAA:

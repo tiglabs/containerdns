@@ -30,13 +30,13 @@ static rrset_type *  do_domaindata_insert(struct  domain_store *db,zone_type * z
     } else {
         int i;
         rr_type* o;
-        if (rrset->rrs[0].ttl != rr->ttl) {
-            log_msg(LOG_ERR,"TTL  does not match\n");
-            return NULL;        
-        }
-
         /* Search for possible duplicates... */
         for (i = 0; i < rrset->rr_count; i++) {
+            if (!strcmp(rrset->rrs[i].view_name, rr->view_name)
+                    && (rrset->rrs[i].ttl != rr->ttl || rrset->rrs[i].lb_mode != rr->lb_mode)) {
+                log_msg(LOG_ERR,"ttl or lb_mode not match in same view\n");
+                return NULL;
+            }
             if (!zrdatacmp(rr->type, rr, &rrset->rrs[i]) && !strcmp(rrset->rrs[i].view_name, rr->view_name)) {
                 break;
             }
