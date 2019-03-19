@@ -87,7 +87,7 @@ static int do_view_tree_insert(view_tree_t *tree, uint8_t *key, size_t nbits,
     view_node_t *node = do_view_tree_get(tree, key, nbits, CREATE);
 
     if (node->view_data != VIEW_NULL_VALUE) {
-        fprintf(stderr, "warning: insert duplicate view tree node!\n");
+        log_msg(LOG_ERR, "warning: insert duplicate view tree node!\n");
         return -1;
     }
 
@@ -111,7 +111,7 @@ static int do_view_tree_delete(view_tree_t *tree, uint8_t *key, size_t nbits)
     view_node_t *node = do_view_tree_get(tree, key, nbits, 0);
 
     if (node == NULL || node->view_data == VIEW_NULL_VALUE) {
-        fprintf(stderr, "warning: delete non-exist key in view tree!\n");
+        log_msg(LOG_ERR, "warning: delete non-exist key in view tree!\n");
         return -1;
     }
 
@@ -187,7 +187,10 @@ int view_delete(view_tree_t *tree,char *pcidr){
         goto error;
     }
 
-  do_view_tree_delete(tree, (uint8_t *) &ip.s_addr, nbits); 
+    ret = do_view_tree_delete(tree, (uint8_t *) &ip.s_addr, nbits);
+    if (ret != 0) {
+        log_msg(LOG_ERR, "failed to delete cidr %s from view tree!", cidr);
+    }
    
 error:
     free(cidr);
@@ -232,7 +235,10 @@ int view_insert(view_tree_t *tree,char *pcidr, char *view_name){
     memcpy(view_data->cidrs, pcidr, strlen(pcidr));
     memcpy(view_data->view_name, view_name, strlen(view_name));
 
-    do_view_tree_insert(tree, (uint8_t *) &ip.s_addr, nbits, view_data); 
+    ret = do_view_tree_insert(tree, (uint8_t *) &ip.s_addr, nbits, view_data); 
+    if (ret != 0) {
+        log_msg(LOG_ERR, "failed to insert view name %s, cidr %s in view tree!", view_name, cidr);
+    }
    
 error:
     free(cidr);
