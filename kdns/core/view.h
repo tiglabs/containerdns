@@ -12,20 +12,19 @@
 #include <arpa/inet.h>
 #include "kdns.h"
 
-
-
 #define VIEW_NULL_VALUE NULL
 #define VIEW_NO_NODE    NULL
 
-
-
 /* type of stored value */
+enum view_action {
+	ACTION_ADD,
+	ACTION_DEL
+};
 
 typedef struct view_value{
     char  cidrs[MAX_VIEW_NAME_LEN];
     char  view_name[MAX_VIEW_NAME_LEN];
 }view_value_t;
-
 
 typedef struct _view_node {
     struct _view_node *left;
@@ -40,14 +39,9 @@ typedef struct view_tree {
     int size;
 } view_tree_t;
 
-int view_insert(view_tree_t *tree,char *pcidr, char *view_name);
-int view_delete(view_tree_t *tree,char *pcidr);
+int view_operate(view_tree_t *tree, char *pcidr, char *view_name, enum view_action action);
 view_tree_t *view_tree_create(void);
 view_value_t* view_find(view_tree_t *tree, uint8_t *key, size_t nbits);
 void view_tree_dump(view_node_t *node,  void* arg1,void (*callback)(void*,view_value_t *));
-
-
-
-
 
 #endif
