@@ -205,13 +205,8 @@ retry:
 }
 
 
-static int do_view_msg_update(struct  view_tree *tree, struct view_info_update* update){
-     if (update->action == ACTION_DEL){
-         return view_delete(tree, update->cidrs);
-     }else if (update->action == ACTION_ADD){
-         return view_insert(tree, update->cidrs,update->view_name);   
-     }
-     return 0;
+static int do_view_msg_update(struct  view_tree *tree, struct view_info_update* update) {
+     return view_operate(tree, update->cidrs, update->view_name, update->action);
 }
 
 

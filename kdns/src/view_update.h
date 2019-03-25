@@ -6,13 +6,6 @@
 #include "webserver.h"
 #include "query.h"
 
-
-enum view_action {
- ACTION_ADD ,
- ACTION_DEL 
-};
-
-
 typedef struct view_info_update{
     enum view_action   action;
     
