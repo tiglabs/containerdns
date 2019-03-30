@@ -117,6 +117,7 @@ static void init_signals(void)
 	sigaction(SIGUSR2, &sigact, NULL);
 }
 
+//set thread's affinity to cpus that are not used by dpdk
 static int set_thread_affinity(void)
 {
     int s;

@@ -317,19 +317,19 @@ void fwd_metrics_init(void){
     // cache date expired clean up thread
     pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
     pthread_create(thread_cache_expired, NULL, thread_metrics_expired_cleanup, (void*)NULL);
-    pthread_setname_np(*thread_cache_expired, "metrics_cleanup");
+    pthread_setname_np(*thread_cache_expired, "kdns_mcache_clr");
 
    // sleep(3);
 
     // metrics_domains thread
     pthread_t *thread_domain_metrics = (pthread_t *)  xalloc(sizeof(pthread_t));  
     pthread_create(thread_domain_metrics, NULL, thread_metrics_domain_getAll, (void*)NULL);
-    pthread_setname_np(*thread_domain_metrics, "metrics_domains");
+    pthread_setname_np(*thread_domain_metrics, "kdns_domain_get");
 
     // metrics_domains_clientIp thread
     pthread_t *thread_domain_clientIp_metrics = (pthread_t *)  xalloc(sizeof(pthread_t));  
     pthread_create(thread_domain_clientIp_metrics, NULL, thread_metrics_domain_clientIp_getAll, (void*)NULL);
-    pthread_setname_np(*thread_domain_clientIp_metrics, "metrics_domains_clientIp");
+    pthread_setname_np(*thread_domain_clientIp_metrics, "kdns_cip_get");
 } 
 
 
