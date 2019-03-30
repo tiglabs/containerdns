@@ -37,15 +37,16 @@ static rrset_type *  do_domaindata_insert(struct  domain_store *db,zone_type * z
                 log_msg(LOG_ERR,"ttl or lb_mode not match in same view\n");
                 return NULL;
             }
+            /* Discard the duplicates... */
             if (!zrdatacmp(rr->type, rr, &rrset->rrs[i]) && !strcmp(rrset->rrs[i].view_name, rr->view_name)) {
-                break;
+                return NULL;
+            }
+            if (rr->type == TYPE_CNAME && !strcmp(rrset->rrs[i].view_name, rr->view_name)) {
+                log_msg(LOG_ERR, "multiple CNAMEs at the same name in same view\n");
+                return NULL;
             }
         }
 
-        /* Discard the duplicates... */
-        if (i < rrset->rr_count) {
-            return NULL;
-        }
         if(rrset->rr_count == 65535) {
             log_msg(LOG_ERR,"too many RRs for domain RRset");
             return NULL;
@@ -113,29 +114,6 @@ static int  do_domaindata_delete(struct  domain_store *db,zone_type * zo,const d
     } 
     return 0 ;
 }
-
-static 
-int do_domaindata_delete_all(struct  domain_store *db,zone_type * zo,const domain_name_st * dname ){
-
-    domain_type* owner = domain_table_find(db->domains,dname);  
-    if (owner == NULL){
-          log_msg(LOG_ERR,"can not find domain: %s \n",domain_name_get(dname));
-          return -1;    
-    }
-    rrset_type *rrset;
-
-/* delete all rrsets of the zone */
-	while((rrset = domain_find_any_rrset(owner, zo))) {
-		/* lower usage can delete other domains */
-		rrset_lower_usage(db, rrset);
-		/* rrset del does not delete our domain(yet) */
-		rrset_delete(db, owner, rrset);
-     }
- 
-    domain_table_deldomain(db,owner);
-    return 0;    
-}
-
 
 static void
 db_zadd_rdata_domain( struct  domain_store *db,char *domain_name,rr_type * rr_insert)
@@ -210,7 +188,7 @@ int domaindata_soa_insert(struct  domain_store *db,char *zone_name){
         return 0;
     }
 
-int domaindata_srv_insert(struct domain_store *db, char *zone_name, char *domain_name, char *host, uint16_t prio, 
+int domaindata_srv_insert(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint16_t prio, 
     uint16_t weight,uint16_t port, uint32_t ttl,uint32_t maxAnswer ){
     const domain_name_st* zname = domain_name_parse((const char *)zone_name);    
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
@@ -237,6 +215,7 @@ int domaindata_srv_insert(struct domain_store *db, char *zone_name, char *domain
    rr_insert->ttl        = ttl;
    rr_insert->rdata_count = 0;
    rr_insert->rdatas =  xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
+   snprintf(rr_insert->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
 
     char string[32];
     sprintf(string,"%d",prio); 
@@ -261,7 +240,7 @@ int domaindata_srv_insert(struct domain_store *db, char *zone_name, char *domain
     return 0;
 }
 
-int domaindata_srv_delete(struct domain_store *db, char *zone_name, char *domain_name, char *host, uint16_t prio, 
+int domaindata_srv_delete(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint16_t prio, 
                             uint16_t weight, uint16_t port, uint32_t ttl,uint32_t maxAnswer){
     const domain_name_st* zname = domain_name_parse((const char*)zone_name);    
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
@@ -287,6 +266,7 @@ int domaindata_srv_delete(struct domain_store *db, char *zone_name, char *domain
    rr_del->ttl        = ttl;
    rr_del->rdata_count = 0;
    rr_del->rdatas =  xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
+   snprintf(rr_del->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
 
     char string[32];
     sprintf(string,"%d",prio); 
@@ -305,7 +285,7 @@ int domaindata_srv_delete(struct domain_store *db, char *zone_name, char *domain
    return ret;
 }
 
-int domaindata_cname_insert(struct domain_store *db, char *zone_name, char *domain_name, char *host, uint32_t ttl, uint32_t maxAnswer){
+int domaindata_cname_insert(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer){
     const domain_name_st* zname = domain_name_parse( (const char*)zone_name);    
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
     const domain_name_st* hostDomain = domain_name_parse((const char*)host); 
@@ -331,6 +311,7 @@ int domaindata_cname_insert(struct domain_store *db, char *zone_name, char *doma
    rr_insert->ttl        = ttl;
    rr_insert->rdata_count = 0;
    rr_insert->rdatas =  xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
+   snprintf(rr_insert->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
 
     rr_insert->rdatas[rr_insert->rdata_count].domain = owner;
 	owner->usage ++; /* reference to domain */
@@ -347,24 +328,43 @@ int domaindata_cname_insert(struct domain_store *db, char *zone_name, char *doma
         return 0;
     }
 
-int domaindata_cname_delete(struct  domain_store *db, char *zone_name, char *domain_name){
-    const domain_name_st *zname = domain_name_parse((const char *)zone_name);
+int domaindata_cname_delete(struct  domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer){
+    const domain_name_st *zname = domain_name_parse((const char*)zone_name);
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
-    if (zname == NULL || dname == NULL) {
-        log_msg(LOG_ERR," illegal zone name %s or domain name %s\n", zone_name, domain_name);
-    return -1;
-}
-   /* find zone to go with it, or create it */
-	zone_type * zo = domain_store_find_zone(db, zname);
-	if(!zo) {
+    const domain_name_st *hostDomain = domain_name_parse((const char*)host);
+    if (zname == NULL || dname == NULL || hostDomain == NULL) {
+        log_msg(LOG_ERR," illegal zone name %s or domain name %s or host domain %s\n", zone_name, domain_name, host);
+        return -1;
+    }
+    /* find zone to go with it, or create it */
+    zone_type * zo = domain_store_find_zone(db, zname);
+    if (!zo) {
         log_msg(LOG_ERR," not find the zone, zone name %s\n", zone_name);
-        return -1;		
-	}
+        return -1;
+    }
+    domain_type *owner = domain_table_insert(db->domains, hostDomain, maxAnswer);//domain_table_find
+    if (owner == NULL) {
+       log_msg(LOG_ERR,"err can not find domain : %s\n", host);
+    }
 
-   return do_domaindata_delete_all(db,zo,dname);
+    rr_type *rr_del         = (rr_type *)xalloc_zero(sizeof(rr_type));
+    rr_del->klass           = CLASS_IN;
+    rr_del->type            = TYPE_CNAME;
+    rr_del->ttl             = ttl;
+    rr_del->rdata_count     = 0;
+    rr_del->rdatas          = xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
+    snprintf(rr_del->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
+
+    rr_del->rdatas[rr_del->rdata_count].domain = owner;
+    ++rr_del->rdata_count;
+
+    int ret = do_domaindata_delete(db, zo, dname, rr_del);
+    add_rdata_to_recyclebin(rr_del);
+    free(rr_del);
+    return ret;
 }
 
-int domaindata_ptr_insert(struct domain_store *db, char *zone_name, char *domain_name, char *host, uint32_t ttl, uint32_t maxAnswer) {
+int domaindata_ptr_insert(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer) {
     const domain_name_st *zname = domain_name_parse((const char*)zone_name);
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
     const domain_name_st *hostDomain = domain_name_parse((const char *)host);
@@ -390,6 +390,7 @@ int domaindata_ptr_insert(struct domain_store *db, char *zone_name, char *domain
     rr_insert->ttl          = ttl;
     rr_insert->rdata_count  = 0;
     rr_insert->rdatas       = xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
+    snprintf(rr_insert->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
 
     rr_insert->rdatas[rr_insert->rdata_count].domain = owner;
     owner->usage++; /* new reference to domain */
@@ -406,7 +407,7 @@ int domaindata_ptr_insert(struct domain_store *db, char *zone_name, char *domain
     return 0;
 }
 
-int domaindata_ptr_delete(struct domain_store *db, char *zone_name, char *domain_name, char *host, uint32_t ttl, uint32_t maxAnswer) {
+int domaindata_ptr_delete(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer) {
     const domain_name_st *zname = domain_name_parse((const char*)zone_name);
     const domain_name_st *dname = domain_name_parse((const char *)domain_name);
     const domain_name_st *hostDomain = domain_name_parse((const char*)host);
@@ -431,6 +432,7 @@ int domaindata_ptr_delete(struct domain_store *db, char *zone_name, char *domain
     rr_del->ttl             = ttl;
     rr_del->rdata_count     = 0;
     rr_del->rdatas          = xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
+    snprintf(rr_del->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
 
     rr_del->rdatas[rr_del->rdata_count].domain = owner;
     ++rr_del->rdata_count;
@@ -463,7 +465,7 @@ int domaindata_a_insert(struct  domain_store *db,char *zone_name,char *domain_na
     rr_insert->lb_mode        = lb_mode;
     rr_insert->lb_weight      = lb_weight;
     rr_insert->lb_weight_cur  = lb_weight;
-    snprintf(rr_insert->view_name, 32, "%s", view_name);
+    snprintf(rr_insert->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
     
     rr_insert->rdatas =  xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
     uint16_t * dataA = zparser_conv_a(ip_addr);
@@ -500,7 +502,7 @@ int domaindata_a_delete(struct  domain_store *db,char *zone_name,char *domain_na
     rr_del->klass      = CLASS_IN;
     rr_del->type       = TYPE_A;
     rr_del->ttl        = ttl;
-    snprintf(rr_del->view_name, 32, "%s", view_name);
+    snprintf(rr_del->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
     
     rr_del->rdatas =  xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
     uint16_t * dataA = zparser_conv_a(ip_addr);
@@ -538,7 +540,7 @@ int domaindata_aaaa_insert(struct  domain_store *db,char *zone_name,char *domain
     rr_insert->lb_mode        = lb_mode;
     rr_insert->lb_weight      = lb_weight;
     rr_insert->lb_weight_cur  = lb_weight;
-    snprintf(rr_insert->view_name, 32, "%s", view_name);
+    snprintf(rr_insert->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
     
     rr_insert->rdatas =  xalloc_array_zero( MAXRDATALEN, sizeof(rdata_atom_type));
     uint16_t * dataA = zparser_conv_aaaa(ip_addr);
@@ -576,7 +578,7 @@ int domaindata_aaaa_delete(struct  domain_store *db,char *zone_name,char *domain
     rr_del->klass      = CLASS_IN;
     rr_del->type       = TYPE_AAAA;
     rr_del->ttl        = ttl;
-    snprintf(rr_del->view_name, 32, "%s", view_name);
+    snprintf(rr_del->view_name, MAX_VIEW_NAME_LEN, "%s", view_name);
     
     rr_del->rdatas =  xalloc_array_zero(MAXRDATALEN, sizeof(rdata_atom_type));
     uint16_t * dataA = zparser_conv_aaaa(ip_addr);
@@ -614,9 +616,9 @@ int domaindata_update(struct  domain_store *db, struct domin_info_update* update
          }
      }else if (update->type == TYPE_PTR){
          if (update->action == DOMAN_ACTION_DEL){
-            return domaindata_ptr_delete(db,update->zone_name,update->domain_name,update->host,update->ttl,update->maxAnswer);
+            return domaindata_ptr_delete(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl,update->maxAnswer);
          }else if (update->action == DOMAN_ACTION_ADD){
-            return domaindata_ptr_insert(db,update->zone_name,update->domain_name,update->host,update->ttl,update->maxAnswer);
+            return domaindata_ptr_insert(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl,update->maxAnswer);
          }else{
             log_msg(LOG_ERR,"err action\n");
             return -2;
@@ -624,9 +626,9 @@ int domaindata_update(struct  domain_store *db, struct domin_info_update* update
      }else if (update->type == TYPE_CNAME){
          //todo
          if (update->action == DOMAN_ACTION_DEL){
-            return domaindata_cname_delete(db,update->zone_name,update->domain_name);
+            return domaindata_cname_delete(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl,update->maxAnswer);
          }else if (update->action == DOMAN_ACTION_ADD){
-            return domaindata_cname_insert(db,update->zone_name,update->domain_name,update->host,update->ttl,update->maxAnswer);
+            return domaindata_cname_insert(db,update->zone_name,update->domain_name,update->view_name,update->host,update->ttl,update->maxAnswer);
          }else{
             log_msg(LOG_ERR,"err action\n");
             return -2;
@@ -634,10 +636,10 @@ int domaindata_update(struct  domain_store *db, struct domin_info_update* update
      }else if (update->type == TYPE_SRV){
          //todo
          if (update->action == DOMAN_ACTION_DEL){
-            return domaindata_srv_delete(db,update->zone_name,update->domain_name,update->host,update->prio, 
+            return domaindata_srv_delete(db,update->zone_name,update->domain_name,update->view_name,update->host,update->prio, 
             update->weight,update->port,update->ttl,update->maxAnswer);
          }else if (update->action == DOMAN_ACTION_ADD){
-            return domaindata_srv_insert(db,update->zone_name,update->domain_name,update->host,update->prio, 
+            return domaindata_srv_insert(db,update->zone_name,update->domain_name,update->view_name,update->host,update->prio, 
               update->weight,update->port,update->ttl,update->maxAnswer);
          }else{
             log_msg(LOG_ERR,"err action\n");

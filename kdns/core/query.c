@@ -244,7 +244,27 @@ answer_domain(struct kdns*  kdns, struct query *q, kdns_answer_st *answer,
 		assert(rrset->rr_count > 0);
 		if (added) {
 			/* only process first CNAME record */
-			domain_type *closest_match = rdata_atom_domain(rrset->rrs[0].rdatas[0]);
+			int i, ret;
+			int16_t view_match_idx = -1;
+			int16_t def_match_idx = -1;
+			for (i = 0; i < rrset->rr_count; ++i) {
+				ret = check_view_info(q, &rrset->rrs[i]);
+				if (ret == VIEW_MATCH_NAME) {
+					view_match_idx = i;
+					break;
+				} else if (ret == VIEW_MATCH_DEF) {
+					def_match_idx = i;
+				}
+			}
+			int16_t rrs_idx = -1;
+			if (view_match_idx != -1) {
+				rrs_idx = view_match_idx;
+			} else if (def_match_idx != -1) {
+				rrs_idx = def_match_idx;;
+			} else {
+				return;
+			}
+			domain_type *closest_match = rdata_atom_domain(rrset->rrs[rrs_idx].rdatas[0]);
 			domain_type *closest_encloser = closest_match;
 			zone_type* origzone = q->zone;
 			++q->cname_count;

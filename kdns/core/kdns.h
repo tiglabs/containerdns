@@ -16,7 +16,11 @@
 
 #define DEFAULT_VIEW_NAME "no_info"
 #define MAX_VIEW_NAME_LEN 32
-
+#define VIEW_MATCH_DEF   0
+#define VIEW_MATCH_NAME  1
+#define VIEW_MATCH_NONE  2
+// max match 128 rrs
+#define VIEW_MATCH_MAX_NUM  1024
 
 /*  configuration and run-time variables */
 typedef struct kdns kdns_type;

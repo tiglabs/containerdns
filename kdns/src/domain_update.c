@@ -342,6 +342,15 @@ static struct domin_info_update * do_domaindata_parse(enum db_action   action, j
         update->maxAnswer = json_integer_value(json_key);
     }
 
+    /* get view name */
+    json_key = json_object_get(json_data, "viewName");
+    if (!json_key || !json_is_string(json_key))  {
+        memcpy(update->view_name, DEFAULT_VIEW_NAME, strlen(DEFAULT_VIEW_NAME));
+    }else{
+        value = json_string_value(json_key);
+        snprintf(update->view_name, strlen(value)+1, "%s", value);
+    }
+
     /* get type name  */
       json_key = json_object_get(json_data, "type");
     if (!json_key || !json_is_string(json_key))  {
@@ -367,14 +376,6 @@ static struct domin_info_update * do_domaindata_parse(enum db_action   action, j
         goto parse_err;
     }
     if ((update->type == TYPE_A) || (update->type == TYPE_AAAA)){
-            /* get view name  */
-             json_key = json_object_get(json_data, "viewName");
-           if (!json_key || !json_is_string(json_key))  {
-                memcpy(update->view_name, DEFAULT_VIEW_NAME, strlen(DEFAULT_VIEW_NAME)); 
-            }else{  
-                value = json_string_value(json_key);
-                snprintf(update->view_name, strlen(value)+1, "%s", value);
-            }
             /* get lb info*/
               json_key = json_object_get(json_data, "lbMode");
             if (!json_key || !json_is_integer(json_key))  {
@@ -626,20 +627,20 @@ static void* domains_get( __attribute__((unused)) struct connection_info_struct 
                     "lbMode",domain_info->lb_mode,"lbWeight",domain_info->lb_weight);
                     break; 
                  case TYPE_PTR:
-                    value = json_pack("{s:s, s:s, s:s, s:s, s:i, s:i}", "type","PTR",
+                    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i}", "type","PTR",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
-                    "ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer);
+                    "viewName",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer);
                     break;
                  case TYPE_CNAME:
-                    value = json_pack("{s:s, s:s, s:s, s:s, s:i, s:i}", "type","CNAME",
+                    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i}", "type","CNAME",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
-                    "ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer);
+                    "viewName",domain_info->view_name,"ttl", domain_info->ttl,"maxAnswer", domain_info->maxAnswer);
                     break;
                  case TYPE_SRV:
-                    value = json_pack("{s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i, s:i}", "type","SRV",
+                    value = json_pack("{s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:i, s:i, s:i}", "type","SRV",
                     "domainName", domain_info->domain_name, "host", domain_info->host, "zoneName", domain_info->zone_name,
-                    "ttl", domain_info->ttl, "priority", domain_info->prio, "weight", domain_info->weight, "port", domain_info->port,
-                    "maxAnswer", domain_info->maxAnswer);
+                    "viewName",domain_info->view_name,"ttl", domain_info->ttl, "priority", domain_info->prio, 
+                    "weight", domain_info->weight, "port", domain_info->port,"maxAnswer", domain_info->maxAnswer);
                     break;
                 default:  
                     log_msg(LOG_ERR,"wrong type(%d) domain:%s\n", domain_info->type, domain_info->domain_name);
