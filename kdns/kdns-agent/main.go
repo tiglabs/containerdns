@@ -687,10 +687,6 @@ func kdnsDomainOperation(ops *KdnsServerOps, zone string, record *ServiceRecord,
 	} else {
 		s.DomainName = getSvcDomainName(record.Key)
 	}
-	// srv host recored 全部结果
-	if srvHost {
-		s.DomainName = getSvcCnameName(record.Key)
-	}
 	if zone == "" {
 		zone = findZoneNameFromDomain(s.DomainName)
 	}
@@ -742,20 +738,6 @@ func GetEtcdCachedRecordsAfterStart(domain string, ops *KdnsServerOps) int64 {
 	ops.etcdCachesLock.Lock()
 	for _, record := range records {
 		switch record.Dnstype {
-		case "SRV":
-			name := getSvcDomainName(record.Key)
-			ops.etcdRecordUpdateTime[name] = timeNow
-			glog.V(2).Infof("SRV record.Host: %s\n", record.DnsHost)
-			hostRecord, _, err := GetRecords(record.DnsHost)
-			if err == nil {
-				if len(hostRecord) > 0 {
-					kdnsDomainOperation(ops, domain, &hostRecord[0], "POST", true)
-					ops.etcdRecordUpdateTime[record.DnsHost] = timeNow
-				}
-
-			} else {
-				glog.Infof("get record(host:%s) err = %s\n", record.DnsHost, err.Error())
-			}
 		case "CNAME":
 			name := getSvcCnameName(record.Key)
 			ops.etcdRecordUpdateTime[name] = timeNow
@@ -781,47 +763,28 @@ func syncGetEtcdCachedRecords() (map[string][]ServiceRecord, error) {
 			return recordCaches, err
 		}
 		for _, record := range records {
-			switch record.Dnstype {
-			case "SRV":
-				name := getSvcDomainName(record.Key)
-				recordCaches[name] = append(recordCaches[name], record)
-				hostRecord, _, err := GetRecords(record.DnsHost)
-				if err == nil {
-					if len(hostRecord) > 0 {
-						// just one
-						if len(recordCaches[record.DnsHost]) > 0 {
-							recordCaches[record.DnsHost][0] = hostRecord[0]
-						} else {
-							recordCaches[record.DnsHost] = append(recordCaches[record.DnsHost], hostRecord[0])
-						}
-					}
-
-				} else {
-					glog.Infof("get record(host:%s) err = %s\n", record.DnsHost, err.Error())
-				}
-			case "CNAME":
-				name := getSvcCnameName(record.Key)
-				recordCaches[name] = append(recordCaches[name], record)
-			default:
-				name := getSvcDomainName(record.Key)
-				// for pod name == svc name just one
-				find := false
-				for _, k := range recordCaches[name] {
-					if record.Dnstype == "A" {
-						if k.Dnstype == record.Dnstype && k.DnsHost == record.DnsHost && k.DnsTtl == record.DnsTtl && k.View == record.View && k.LBMode == record.LBMode && k.LBWeight == record.LBWeight {
+			name := ""
+			if record.Dnstype == "CNAME" {
+				name = getSvcCnameName(record.Key)
+			} else {
+				name = getSvcDomainName(record.Key)
+			}
+			find := false
+			for _, k := range recordCaches[name] {
+				if k.Dnstype == record.Dnstype && k.DnsHost == record.DnsHost && k.View == record.View {
+					if record.Dnstype == "SRV" {
+						if  k.DnsPriority == record.DnsPriority && k.DnsWeight == record.DnsWeight && k.DnsPort == record.DnsPort {
 							find = true
 							break
 						}
 					} else {
-						if k.Dnstype == record.Dnstype && k.DnsHost == record.DnsHost && k.DnsTtl == record.DnsTtl {
-							find = true
-							break
-						}
+						find = true
+						break
 					}
 				}
-				if !find {
-					recordCaches[name] = append(recordCaches[name], record)
-				}
+			}
+			if !find {
+				recordCaches[name] = append(recordCaches[name], record)
 			}
 		}
 	}
@@ -861,18 +824,6 @@ func doUpdateDomain(e *etcdv3.Event, zone string, ops *KdnsServerOps) {
 				}
 				ops.etcdRecordUpdateTime[name] = timeNow
 				kdnsDomainOperation(ops, zone, valNew, "POST", false)
-				if valNew.Dnstype == "SRV" {
-					hostRecord, _, err := GetRecords(valNew.DnsHost)
-					if err == nil {
-						if len(hostRecord) > 0 {
-							kdnsDomainOperation(ops, zone, &hostRecord[0], "POST", true)
-							ops.etcdRecordUpdateTime[valNew.DnsHost] = timeNow
-						}
-
-					} else {
-						glog.Infof("err =%s\n", err.Error())
-					}
-				}
 			}
 		} else {
 			glog.Infof("todo\n")
@@ -888,18 +839,6 @@ func doUpdateDomain(e *etcdv3.Event, zone string, ops *KdnsServerOps) {
 			}
 			ops.etcdRecordUpdateTime[name] = timeNow
 			kdnsDomainOperation(ops, zone, valDel, "DELETE", false)
-
-			if valDel.Dnstype == "SRV" {
-				hostRecord, _, err := GetRecords(valDel.DnsHost)
-				if err == nil {
-					if len(hostRecord) > 0 {
-						kdnsDomainOperation(ops, zone, &hostRecord[0], "DELETE", true)
-						ops.etcdRecordUpdateTime[valDel.DnsHost] = timeNow
-					}
-				} else {
-					glog.Infof("err =%s\n", err.Error())
-				}
-			}
 		}
 	default:
 		glog.Infof("the action not monitored: Action =%d kv=%v", e.Type, e.Kv)
@@ -1062,14 +1001,14 @@ func syncRecordEqual(etcd []ServiceRecord, kdns []KdnsRecord) ([]int, []int) {
 	for idx, e := range etcd {
 		found := false
 		for _, k := range kdns {
-			if k.Type == e.Dnstype && k.Host == e.DnsHost && k.DnsTtl == e.DnsTtl {
+			if k.Type == e.Dnstype && k.Host == e.DnsHost && k.DnsTtl == e.DnsTtl && k.View == e.View {
 				if k.Type == "SRV" {
-					if k.DnsPort == e.DnsPort && k.DnsPriority == e.DnsPriority && k.DnsWeight == e.DnsWeight {
+					if k.DnsPriority == e.DnsPriority && k.DnsWeight == e.DnsWeight && k.DnsPort == e.DnsPort {
 						found = true
 						break
 					}
 				} else if k.Type == "A" {
-					if k.View == e.View && k.LBMode == e.LBMode && k.LBWeight == e.LBWeight {
+					if k.LBMode == e.LBMode && k.LBWeight == e.LBWeight {
 						found = true
 						break
 					}
@@ -1087,14 +1026,14 @@ func syncRecordEqual(etcd []ServiceRecord, kdns []KdnsRecord) ([]int, []int) {
 	for idx, k := range kdns {
 		found := false
 		for _, e := range etcd {
-			if k.Type == e.Dnstype && k.Host == e.DnsHost && k.DnsTtl == e.DnsTtl {
+			if k.Type == e.Dnstype && k.Host == e.DnsHost && k.DnsTtl == e.DnsTtl && k.View == e.View {
 				if k.Type == "SRV" {
-					if k.DnsPort == e.DnsPort && k.DnsPriority == e.DnsPriority && k.DnsWeight == e.DnsWeight {
+					if k.DnsPriority == e.DnsPriority && k.DnsWeight == e.DnsWeight && k.DnsPort == e.DnsPort {
 						found = true
 						break
 					}
 				} else if k.Type == "A" {
-					if k.View == e.View && k.LBMode == e.LBMode && k.LBWeight == e.LBWeight {
+					if k.LBMode == e.LBMode && k.LBWeight == e.LBWeight {
 						found = true
 						break
 					}
