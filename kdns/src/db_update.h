@@ -36,23 +36,7 @@ typedef struct domin_info_update{
     struct domin_info_update *next;  
 }domin_info_update_st;
 
-int domaindata_update(struct  domain_store *db, struct domin_info_update * update);
-int domaindata_soa_insert(struct  domain_store *db,char *zone_name);
-int domaindata_srv_insert(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * host,uint16_t prio,uint16_t weight,
-uint16_t port, uint32_t ttl,uint32_t maxAnswer);
-int domaindata_srv_delete(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * host,uint16_t prio,uint16_t weight,
-uint16_t port, uint32_t ttl ,uint32_t maxAnswer);
-int domaindata_cname_insert(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * host, uint32_t ttl,uint32_t maxAnswer);
-int domaindata_cname_delete(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * host, uint32_t ttl,uint32_t maxAnswer);
-int domaindata_a_insert(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * ip_addr, uint32_t ttl,
-                       uint16_t lb_mode,uint16_t lb_weight,uint32_t maxAnswer);
-int domaindata_a_delete(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * ip_addr, uint32_t ttl);
-
-int domaindata_aaaa_insert(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * ip_addr, uint32_t ttl,
-                       uint16_t lb_mode,uint16_t lb_weight,uint32_t maxAnswer);
-int domaindata_aaaa_delete(struct  domain_store *db,char *zone_name,char *domain_name, char *view_name, char * ip_addr, uint32_t ttl);
-
-int domaindata_ptr_insert(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer);
-int domaindata_ptr_delete(struct domain_store *db, char *zone_name, char *domain_name, char *view_name, char *host, uint32_t ttl, uint32_t maxAnswer);
+int domaindata_update(struct domain_store *db, struct domin_info_update *update);
+int domaindata_soa_insert(struct domain_store *db, char *zone_name);
 
 #endif
