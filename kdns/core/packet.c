@@ -12,23 +12,9 @@
 #include "query.h"
 #include "zone.h"
 
-#define VIEW_MATCH_DEF   0
-#define VIEW_MATCH_NAME  1
-#define VIEW_MATCH_NONE  2
-
-#define VIEW_MATCH_DEF   0
-#define VIEW_MATCH_NAME  1
-#define VIEW_MATCH_NONE  2
-
 #define DOMAIN_LB_RR    1
 #define DOMAIN_LB_WRR   2
 #define DOMAIN_LB_HASH  3
-
-
-// max match 128 rrs
-#define VIEW_MATCH_MAX_NUM  1024
-
-
 
 int round_robin = 1;
 
@@ -112,21 +98,6 @@ packet_encode_rr(kdns_query_st *q, domain_type *owner, rr_type *rr, uint32_t ttl
 	}
 }
 
-
-
-static int ckeck_view_info(kdns_query_st *query, rr_type *rr)
-{
-    // rr no view info 
-    if (0 == strcmp(rr->view_name,DEFAULT_VIEW_NAME)){
-        return VIEW_MATCH_DEF;
-    }
-
-    if (0 ==  strcmp(query->view_name,rr->view_name)){
-        return VIEW_MATCH_NAME;
-    }
-    return VIEW_MATCH_NONE;
-}
-
 static int lb_filter(kdns_query_st *query,domain_type *owner,int16_t lb_mode, rrset_type *rrset,
                     int16_t *idx_array, int16_t size,uint16_t round_robin_off){
 
@@ -185,16 +156,12 @@ packet_encode_rrset(kdns_query_st *query, domain_type *owner,
 	static uint16_t round_robin_off = 0;
 	int do_robin = (round_robin && section == ANSWER_SECTION);
 	uint16_t start;
-    uint16_t rr_match_max;
     uint32_t maxAnswer = 65535;
     // max 128 record per view
     int16_t rrs_view_idx[VIEW_MATCH_MAX_NUM];
     int16_t rrs_def_idx[VIEW_MATCH_MAX_NUM];
-    int16_t view_match_idx  =0 ;
-    int16_t def_match_idx  =0 ;
-    memset(rrs_view_idx, -1, sizeof(int16_t)*VIEW_MATCH_MAX_NUM);
-    memset(rrs_def_idx, -1, sizeof(int16_t)*VIEW_MATCH_MAX_NUM);
-
+    int16_t view_match_num = 0;
+    int16_t def_match_num = 0;
     rr_type *rr_to_encode = NULL;
     
     int truncate_rrset = (section == ANSWER_SECTION ||
@@ -213,59 +180,47 @@ packet_encode_rrset(kdns_query_st *query, domain_type *owner,
     // filter the view info
     int ret_tmp;
     uint16_t lb_mode = 0;
-    
 	for (i = 0; i < rrset->rr_count; ++i) {
-        ret_tmp = ckeck_view_info(query,&rrset->rrs[i]);
-        if ((ret_tmp == VIEW_MATCH_NAME)&& (view_match_idx < VIEW_MATCH_MAX_NUM)){
+        ret_tmp = check_view_info(query,&rrset->rrs[i]);
+        if ((ret_tmp == VIEW_MATCH_NAME)&& (view_match_num < VIEW_MATCH_MAX_NUM)){
             if (lb_mode ==0) {
                 lb_mode = rrset->rrs[i].lb_mode;
             }
-            rrs_view_idx[view_match_idx] = i;
-            view_match_idx ++;      
-        }else if ((ret_tmp == VIEW_MATCH_DEF)&& (def_match_idx < VIEW_MATCH_MAX_NUM)){
+            rrs_view_idx[view_match_num] = i;
+            ++view_match_num;
+        }else if ((ret_tmp == VIEW_MATCH_DEF)&& (def_match_num < VIEW_MATCH_MAX_NUM)){
             if (lb_mode ==0) {
                 lb_mode = rrset->rrs[i].lb_mode;
             }
-            rrs_def_idx[def_match_idx] = i;
-            def_match_idx ++;    
-        }else{
-            continue;
+            rrs_def_idx[def_match_num] = i;
+            ++def_match_num;
         }
 	}
+	int16_t match_num = 0;
+	int16_t *rrs_idx = NULL;
+	if (view_match_num) {
+		match_num = view_match_num;
+		rrs_idx = rrs_view_idx;
+	} else if (def_match_num) {
+		match_num = def_match_num;
+		rrs_idx = rrs_def_idx;
+	} else {
+		return 0;
+	}
+
     // lb enable
     if (lb_mode != 0){
-        if (view_match_idx >0){
-            return lb_filter(query, owner, lb_mode, rrset, rrs_view_idx, view_match_idx, round_robin_off);
-        }else if (def_match_idx >0){
-            return lb_filter(query, owner, lb_mode, rrset, rrs_def_idx, def_match_idx, round_robin_off);
-        }else{
-            return 0;
-        }
+        return lb_filter(query, owner, lb_mode, rrset, rrs_idx, match_num, round_robin_off);
     }
     
     // lb_mode ==0 
-	if(do_robin && view_match_idx){
-		start = (uint16_t)(round_robin_off % view_match_idx);
-        rr_match_max = view_match_idx;
-    }else if (do_robin && def_match_idx){
-        start = (uint16_t)(round_robin_off % def_match_idx);
-        rr_match_max = def_match_idx;
-    }else{
-        start = 0;
-        rr_match_max = def_match_idx;
-    }
-    
-
-    for (i = start; i < rr_match_max && added < maxAnswer; ++i) {
-
-        if (view_match_idx){
-            rr_to_encode = &rrset->rrs[rrs_view_idx[i]];
-        }else if (def_match_idx) {
-            rr_to_encode = &rrset->rrs[rrs_def_idx[i]];
-        }else{
-            continue;
-        }
-        
+	if (do_robin) {
+		start = (uint16_t)(round_robin_off % match_num);
+	} else {
+		start = 0;
+	}
+    for (i = start; i < match_num && added < maxAnswer; ++i) {
+        rr_to_encode = &rrset->rrs[rrs_idx[i]];
 		if (packet_encode_rr(query, owner,rr_to_encode,rr_to_encode->ttl)) {
 			++added;
 		} else {
@@ -274,15 +229,7 @@ packet_encode_rrset(kdns_query_st *query, domain_type *owner,
 		}
 	}
 	for (i = 0; i < start && added < maxAnswer; ++i) {
-        
-		if (view_match_idx){
-            rr_to_encode = &rrset->rrs[rrs_view_idx[i]];
-        }else if (def_match_idx) {
-            rr_to_encode = &rrset->rrs[rrs_def_idx[i]];
-        }else{
-            continue;
-        }
-        
+		rr_to_encode = &rrset->rrs[rrs_idx[i]];
 		if (packet_encode_rr(query, owner,rr_to_encode,rr_to_encode->ttl)) {
 			++added;
 		} else {

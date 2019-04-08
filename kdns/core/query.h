@@ -62,6 +62,17 @@ typedef struct answer {
 	rr_section_type section[MAXRRSPP];
 }kdns_answer_st;
 
+static inline int check_view_info(kdns_query_st *query, rr_type *rr)
+{
+    // rr no view info 
+    if (0 == strcmp(rr->view_name,DEFAULT_VIEW_NAME)){
+        return VIEW_MATCH_DEF;
+    }
+    if (0 == strcmp(query->view_name,rr->view_name)){
+        return VIEW_MATCH_NAME;
+    }
+    return VIEW_MATCH_NONE;
+}
 
 void encode_answer(kdns_query_st *q, const kdns_answer_st *answer);
 
