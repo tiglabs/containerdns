@@ -21,7 +21,7 @@ typedef struct domain
 {
 
 	struct radnode* rnode;
-	 domain_name_st* dname;
+	domain_name_st* dname;
 	struct domain* parent;
 	struct domain* wildcard_child_closest_match;
 	struct rrset * rrsets;
@@ -49,15 +49,15 @@ typedef struct zone
 typedef struct rr {
 	struct domain *     owner;
 	union rdata_atom* rdatas;
-    char  view_name[MAX_VIEW_NAME_LEN];
-    uint16_t         lb_mode;
-    uint16_t         lb_weight;
-    uint16_t         lb_weight_cur;
-
+	char  view_name[MAX_VIEW_NAME_LEN];
 	uint32_t         ttl;
 	uint16_t         type;
 	uint16_t         klass;
 	uint16_t         rdata_count;
+	
+	uint16_t         lb_mode;
+	uint16_t         lb_weight;
+	uint16_t         lb_weight_cur;
 }rr_type;
 
 /*
