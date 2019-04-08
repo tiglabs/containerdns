@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <pthread.h>
 #include <rte_mbuf.h>
 #include <rte_ether.h> 
 #include <rte_ip.h>
@@ -307,14 +309,42 @@ int process_slave(__attribute__((unused)) void *arg) {
     return 0;
 }
 
+//set master's affinity to master core
+static int reset_master_affinity(void)
+{
+    int s;
+    pthread_t tid;
+    cpu_set_t cpuset;
+
+    tid = pthread_self();
+    CPU_ZERO(&cpuset);
+    CPU_SET(rte_get_master_lcore(), &cpuset);
+
+    s = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+    if (s != 0) {
+        log_msg(LOG_ERR, "fail to set thread affinty, errno=%d, errinfo=%s\n", errno, strerror(errno));
+        return -1;
+    }
+
+    CPU_ZERO(&cpuset);
+    s = pthread_getaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+    if (s != 0) {
+        log_msg(LOG_ERR, "fail to get thread affinity, errno=%d, errinfo=%s\n", errno, strerror(errno));
+        return -2;
+    }
+    log_msg(LOG_INFO, "master thread affinity is set to %u\n", CPU_COUNT(&cpuset));
+
+    return 0;
+}
 
 void process_master(__attribute__((unused)) void *arg) {
     
-     domain_msg_ring_create();
-     view_msg_ring_create();
+    domain_msg_ring_create();
+    view_msg_ring_create();
 
-     domian_info_exchange_run(g_dns_cfg->comm.web_port);
+    domian_info_exchange_run(g_dns_cfg->comm.web_port);
 
+    reset_master_affinity();
     while(1) {
         struct rte_mbuf *pkts_kni_rx[NETIF_MAX_PKT_BURST];
         unsigned pkt_num;

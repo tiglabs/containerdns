@@ -113,7 +113,7 @@ static void check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	uint8_t portid, count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
-	log_msg(LOG_INFO,"\nChecking link status\n");
+	log_msg(LOG_INFO,"Checking link status\n");
 	fflush(stdout);
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		all_ports_up = 1;

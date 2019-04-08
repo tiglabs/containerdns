@@ -307,7 +307,7 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     // cache date expired clean up thread
     pthread_t *thread_cache_expired = (pthread_t *)  xalloc(sizeof(pthread_t));  
     pthread_create(thread_cache_expired, NULL, thread_fwd_cache_expired_cleanup, (void*)NULL);
-    pthread_setname_np(*thread_cache_expired, "kdns_fwd_cache");
+    pthread_setname_np(*thread_cache_expired, "kdns_fcache_clr");
  
     return 0;
 }
