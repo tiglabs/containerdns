@@ -88,12 +88,16 @@ static void domain_list_ops(struct domin_info_update *msg,unsigned int hashValue
     pre = find = g_domian_hash_list[hashId];
 
     while(find){
-        if (find->hashValue == hashValue &&
-            strcmp(find->domain_name,msg->domain_name)==0 &&
-            strcmp(find->zone_name,msg->zone_name)==0 &&
-            strcmp(find->host,msg->host)==0 &&
-            strcmp(find->view_name,msg->view_name)==0){
-            break;
+        if (find->hashValue == hashValue
+                && find->type == msg->type && strcmp(find->domain_name, msg->domain_name) == 0
+                && strcmp(find->host, msg->host) == 0 && strcmp(find->view_name, msg->view_name) == 0){
+            if (msg->type == TYPE_SRV) {
+                if (find->prio == msg->prio && find->weight == msg->weight && find->port == msg->port) {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
         pre = find;
         find = find->next;
