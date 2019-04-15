@@ -55,8 +55,9 @@ void tcp_statsdata_reset(void)
 }
 
 int tcp_domian_databd_update(struct domin_info_update* update){
-    
-    return domaindata_update(kdns_tcp.db,update);
+    int ret = domaindata_update(kdns_tcp.db,update);
+    free(update);
+    return ret;
 }
 
 
