@@ -142,6 +142,7 @@ int domaindata_soa_insert(struct domain_store *db, char *zone_name)
     zone_type *zo = domain_store_find_zone(db, zname);
     if (zo == NULL) {
         log_msg(LOG_ERR, "not find the zone, zone name: %s\n", zone_name);
+        free((void *)zname);
         return -1;
     }
 
@@ -149,10 +150,12 @@ int domaindata_soa_insert(struct domain_store *db, char *zone_name)
     snprintf(string, sizeof(string), "ns1.%s", zone_name);
     const domain_name_st *ns1_name = domain_name_parse((const char *)string);
     domain_type          *ns1_own  = domain_table_insert(db->domains, ns1_name, 0);
+    free((void *)ns1_name);
 
     snprintf(string, sizeof(string), "mail.%s", zone_name);
     const domain_name_st *mail_name = domain_name_parse((const char *)string);
     domain_type          *mail_own  = domain_table_insert(db->domains, mail_name, 0);
+    free((void *)mail_name);
 
     rr_type rr;
     memset(&rr, 0, sizeof(rr));
@@ -173,6 +176,7 @@ int domaindata_soa_insert(struct domain_store *db, char *zone_name)
     if (rrset == NULL) {
         rr_lower_usage(db, &rr);
         add_rdata_to_recyclebin(&rr);
+        free((void *)zname);
         return -1;
     }
 
@@ -180,6 +184,7 @@ int domaindata_soa_insert(struct domain_store *db, char *zone_name)
     if (owner) {
         apex_rrset_checks(rrset, owner);
     }
+    free((void *)zname);
     return 0;
 }
 
@@ -203,14 +208,10 @@ int domaindata_update(struct domain_store *db, struct domin_info_update *update)
     zone_type *zo = domain_store_find_zone(db, zname);
     if (zo == NULL) {
         log_msg(LOG_ERR, "not find the zone, zone name: %s\n", update->zone_name);
+        free((void *)zname);
         return -1;
     }
-
-    const domain_name_st *dname = domain_name_parse((const char *)update->domain_name);
-    if (dname == NULL) {
-        log_msg(LOG_ERR, "illegal domain name: %s\n", update->domain_name);
-        return -1;
-    }
+    free((void *)zname);
 
     domain_type *hostOwner = NULL;
     if (update->type == TYPE_PTR || update->type == TYPE_CNAME || update->type == TYPE_SRV) {
@@ -223,11 +224,18 @@ int domaindata_update(struct domain_store *db, struct domin_info_update *update)
         if (hostOwner == NULL && update->action == DOMAN_ACTION_ADD) {
             hostOwner = domain_table_insert(db->domains, hostDomain, update->maxAnswer);
         }
+        free((void *)hostDomain);
         if (hostOwner == NULL) {
             log_msg(LOG_ERR, "err: action %s but can not find domain: %s\n",
                     update->action == DOMAN_ACTION_ADD ? "add" : "del", update->host);
             return -1;
         }
+    }
+
+    const domain_name_st *dname = domain_name_parse((const char *)update->domain_name);
+    if (dname == NULL) {
+        log_msg(LOG_ERR, "illegal domain name: %s\n", update->domain_name);
+        return -1;
     }
 
     rr_type rr;
@@ -266,13 +274,16 @@ int domaindata_update(struct domain_store *db, struct domin_info_update *update)
         if (rrset == NULL) {
             rr_lower_usage(db, &rr);
             add_rdata_to_recyclebin(&rr);
+            free((void *)dname);
             return -1;
         }
+        free((void *)dname);
         return 0;
     } else {
         int ret = do_domaindata_delete(db, zo, dname, &rr);
         rr_lower_usage(db, &rr);
         add_rdata_to_recyclebin(&rr);
+        free((void *)dname);
         return ret;
     }
 }
