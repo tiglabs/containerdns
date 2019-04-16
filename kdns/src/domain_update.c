@@ -160,14 +160,6 @@ void domain_list_del_zone(char *zones)
     }
 }
 
-void domain_set_kdns_status(const char *status)
-{
-    if (kdns_status) {
-        free(kdns_status);
-    }
-    kdns_status = strdup(status);
-}
-
 // to optimization
 static void domain_info_store(struct domin_info_update *msg)
 {

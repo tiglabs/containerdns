@@ -579,7 +579,6 @@ int config_reload_proc(char* dns_cfgfile)
     if (!g_dns_cfg || !g_reload_dns_cfg)
         return 0;
 
-    domain_set_kdns_status(DNS_STATUS_INIT);
     ret = config_log_file_reload_proc();
     if (ret)
         return ret;
@@ -597,6 +596,5 @@ int config_reload_proc(char* dns_cfgfile)
         return ret;
 
     config_reload_free();
-    domain_set_kdns_status(DNS_STATUS_RUN);
     return 0;
 }
