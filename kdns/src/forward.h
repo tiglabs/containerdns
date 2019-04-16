@@ -3,6 +3,8 @@
 #ifndef	_FORWARD_H_
 #define	_FORWARD_H_
 
+#define _GNU_SOURCE
+#include <pthread.h>
 #include <rte_mbuf.h>
 #include <arpa/inet.h>
 #include <rte_rwlock.h>
@@ -11,7 +13,7 @@
 
 #define FWD_MAX_DOMAIN_NAME_LEN  255
 
-extern rte_rwlock_t __fwd_lock;
+extern pthread_rwlock_t __fwd_lock;
 
 
 typedef struct {
