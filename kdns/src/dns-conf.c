@@ -250,8 +250,7 @@ config_file_load( char *cfgfile_path, char *proc_name) {
     rte_cfgfile_close(cfgfile);
 }
 
-static void
-common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
+static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
     const char *entry;
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "log-file");
@@ -280,40 +279,46 @@ common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
         cfg->zones = strdup(entry);
     }else {
         log_msg(LOG_ERR, "Cannot read COMMON/zones.");
-        return;
+        return -1;
     }
+    return 0;
 }
 
-static void config_file_reload(char *cfgfile_path)
+static int config_file_reload(char *cfgfile_path)
 {
+    int ret = 0;
     struct rte_cfgfile *cfgfile;
 
     if (!g_reload_zone) {
         g_reload_zone = xalloc(sizeof(struct zones_reload));
         if (!g_reload_zone) {
-            log_msg(LOG_ERR, "Cannot alloc memory for config.");
-            return;
+            log_msg(LOG_ERR, "Cannot alloc memory for g_reload_zone.");
+            return -1;
         }
     }
-
     memset(g_reload_zone, 0, sizeof(struct zones_reload));
 
-    g_reload_dns_cfg = xalloc(sizeof(struct dns_config));
     if (!g_reload_dns_cfg) {
-        log_msg(LOG_ERR, "Cannot alloc memory for config.");
-        return;
+        g_reload_dns_cfg = xalloc(sizeof(struct dns_config));
+        if (!g_reload_dns_cfg) {
+            log_msg(LOG_ERR, "Cannot alloc memory for g_reload_dns_cfg.");
+            return -1;
+        }
     }
-
     memset(g_reload_dns_cfg, 0, sizeof(struct dns_config));
 
     cfgfile = rte_cfgfile_load(cfgfile_path, 0);
     if (!cfgfile) {
-        log_msg(LOG_ERR, "Load config file failed: %s", cfgfile_path);
-        return;
+        log_msg(LOG_ERR, "Open config file failed: %s", cfgfile_path);
+        return -1;
     }
 
-    common_config_reload_init(cfgfile, &g_reload_dns_cfg->comm);
+    ret = common_config_reload_init(cfgfile, &g_reload_dns_cfg->comm);
+    if (ret) {
+        log_msg(LOG_ERR, "Load config file failed: %s", cfgfile_path);
+    }
     rte_cfgfile_close(cfgfile);
+    return ret;
 }
 
 static int config_log_file_reload_proc(void)
@@ -554,19 +559,30 @@ static int config_zones_reload_proc(void)
 
 static void config_reload_free(void)
 {
-    if (g_reload_dns_cfg->comm.log_file)
+    if (!g_reload_dns_cfg) {
+        return;
+    }
+    if (g_reload_dns_cfg->comm.log_file) {
         free(g_reload_dns_cfg->comm.log_file);
+        g_reload_dns_cfg->comm.log_file = NULL;
+    }
 
-    if (g_reload_dns_cfg->comm.fwd_def_addrs)
+    if (g_reload_dns_cfg->comm.fwd_def_addrs) {
         free(g_reload_dns_cfg->comm.fwd_def_addrs);
+        g_reload_dns_cfg->comm.fwd_def_addrs = NULL;
+    }
 
-    if (g_reload_dns_cfg->comm.fwd_addrs)
+
+    if (g_reload_dns_cfg->comm.fwd_addrs) {
         free(g_reload_dns_cfg->comm.fwd_addrs);
+        g_reload_dns_cfg->comm.fwd_addrs = NULL;
+    }
 
-    if (g_reload_dns_cfg->comm.zones)
+
+    if (g_reload_dns_cfg->comm.zones) {
         free(g_reload_dns_cfg->comm.zones);
-
-    free(g_reload_dns_cfg);
+        g_reload_dns_cfg->comm.zones = NULL;
+    }
 }
 
 int config_reload_proc(char* dns_cfgfile)
@@ -574,27 +590,28 @@ int config_reload_proc(char* dns_cfgfile)
     int ret = 0;
 
     log_msg(LOG_INFO, "start reload config file %s", dns_cfgfile);
-    config_file_reload(dns_cfgfile);
 
-    if (!g_dns_cfg || !g_reload_dns_cfg)
-        return 0;
+    ret = config_file_reload(dns_cfgfile);
+    if (ret)
+        goto _out;
 
     ret = config_log_file_reload_proc();
     if (ret)
-        return ret;
+        goto _out;
 
     ret = config_fwd_def_addrs_reload_proc();
     if (ret)
-        return ret;
+        goto _out;
 
     ret = config_fwd_addrs_reload_proc();
     if (ret)
-        return ret;
+        goto _out;
 
     ret = config_zones_reload_proc();
     if (ret)
-        return ret;
+        goto _out;
 
+_out:
     config_reload_free();
-    return 0;
+    return ret;
 }
