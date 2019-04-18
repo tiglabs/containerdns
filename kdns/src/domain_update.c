@@ -730,18 +730,18 @@ static void *statistics_get(__attribute__((unused)) struct connection_info_struc
     json_t *value = json_pack("{s:i, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
                                 s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
                                 s:f, s:f, s:f}",
-                                "domain_num", domain_num_get(), "pkts_rcv", (float)sta.pkts_rcv,
-                                "dns_pkts_rcv", (float)sta.dns_pkts_rcv, "dns_pkts_snd", (float)sta.dns_pkts_snd,
-                                "pkt_dropped", (float)sta.pkt_dropped, "pkts_2kni", (float)sta.pkts_2kni,
-                                "pkts_icmp", (float)sta.pkts_icmp, "pkt_len_err", (float)sta.pkt_len_err,
-                                "dns_lens_rcv", (float)sta.dns_lens_rcv, "dns_lens_snd", (float)sta.dns_lens_snd,
-                                "tcp_pkts_rcv", (float)sta.dns_pkts_rcv_tcp, "tcp_pkts_snd", (float)sta.dns_pkts_snd_tcp,
-                                "tcp_fwd_rcv", (float)sta.dns_fwd_rcv_tcp, "tcp_fwd_snd", (float)sta.dns_fwd_snd_tcp,
-                                "udp_fwd_rcv", (float)sta.dns_fwd_rcv_udp, "udp_fwd_snd", (float)sta.dns_fwd_snd_udp,
-                                "metrics-maxtime", (float)sta.metrics.maxTime, "metrics-mintime", (float)sta.metrics.minTime,
-                                "metrics-sumtime", (float)sta.metrics.timeSum, "metrics1", (float)sta.metrics.metrics[0],
-                                "metrics2", (float)sta.metrics.metrics[1], "metrics3", (float)sta.metrics.metrics[2],
-                                "metrics4", (float)sta.metrics.metrics[3]);
+                                "domain_num", domain_num_get(), "pkts_rcv", (double)sta.pkts_rcv,
+                                "dns_pkts_rcv", (double)sta.dns_pkts_rcv, "dns_pkts_snd", (double)sta.dns_pkts_snd,
+                                "pkt_dropped", (double)sta.pkt_dropped, "pkts_2kni", (double)sta.pkts_2kni,
+                                "pkts_icmp", (double)sta.pkts_icmp, "pkt_len_err", (double)sta.pkt_len_err,
+                                "dns_lens_rcv", (double)sta.dns_lens_rcv, "dns_lens_snd", (double)sta.dns_lens_snd,
+                                "tcp_pkts_rcv", (double)sta.dns_pkts_rcv_tcp, "tcp_pkts_snd", (double)sta.dns_pkts_snd_tcp,
+                                "tcp_fwd_rcv", (double)sta.dns_fwd_rcv_tcp, "tcp_fwd_snd", (double)sta.dns_fwd_snd_tcp,
+                                "udp_fwd_rcv", (double)sta.dns_fwd_rcv_udp, "udp_fwd_snd", (double)sta.dns_fwd_snd_udp,
+                                "metrics-maxtime", (double)sta.metrics.maxTime, "metrics-mintime", (double)sta.metrics.minTime,
+                                "metrics-sumtime", (double)sta.metrics.timeSum, "metrics1", (double)sta.metrics.metrics[0],
+                                "metrics2", (double)sta.metrics.metrics[1], "metrics3", (double)sta.metrics.metrics[2],
+                                "metrics4", (double)sta.metrics.metrics[3]);
 
     if (!value) {
         char *err = strdup("json_pack err");

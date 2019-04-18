@@ -128,10 +128,10 @@ static int metrics_domain_query_all_and_reset(hashNode *node, void* arg){
      json_t * array  = (json_t *)arg;
 
      json_t *value = json_pack("{s:s, s:f, s:f, s:f, s:f,s:f, s:f, s:f, s:f, s:f, s:f}",
-                    "Domain", node->key, "QueryNum", (float)mNode->requestCount, "FirstQueryTime", (float)mNode->firstQueryTime,
-                    "LastQueryTime",(float)mNode->lastQueryTime,"MinTime", (float)mNode->metrics.minTime,"MaxTime", (float)mNode->metrics.maxTime,
-                    "SumTime",(float)mNode->metrics.timeSum,"metrics1",(float)mNode->metrics.metrics[0],"metrics2",(float)mNode->metrics.metrics[1],
-                    "metrics3",(float)mNode->metrics.metrics[2],"metrics4",(float)mNode->metrics.metrics[3]);
+                    "Domain", node->key, "QueryNum", (double)mNode->requestCount, "FirstQueryTime", (double)mNode->firstQueryTime,
+                    "LastQueryTime",(double)mNode->lastQueryTime,"MinTime", (double)mNode->metrics.minTime,"MaxTime", (double)mNode->metrics.maxTime,
+                    "SumTime",(double)mNode->metrics.timeSum,"metrics1",(double)mNode->metrics.metrics[0],"metrics2",(double)mNode->metrics.metrics[1],
+                    "metrics3",(double)mNode->metrics.metrics[2],"metrics4",(double)mNode->metrics.metrics[3]);
 
      memset(&mNode->metrics, 0, sizeof(metrics_metrics_st));
      mNode->metrics.minTime = 0xffff;
@@ -145,13 +145,12 @@ static int metrics_domain_clientip_query_all(hashNode *node, void* arg){
      metrics_domain_clientIp_st *mNode = (metrics_domain_clientIp_st*) node->data;
      json_t * array  = (json_t *)arg;
 
-     json_t *value = json_pack("{s:s, s:s, s:f, s:f, s:f,s:f}",
-                    "Domain", mNode->domain_name,"Host", g_dns_host_name, "QueryNum", (float)mNode->requestCount, "FirstQueryTime", (float)mNode->firstQueryTime,
-                    "LastQueryTime",(float)mNode->lastQueryTime,"SourceIP", (float)mNode->src_addr);
+     json_t *value = json_pack("{s:s, s:s, s:f, s:f, s:f,s:i}",
+                    "Domain", mNode->domain_name,"Host", g_dns_host_name, "QueryNum", (double)mNode->requestCount, "FirstQueryTime", (double)mNode->firstQueryTime,
+                    "LastQueryTime",(double)mNode->lastQueryTime,"SourceIP", mNode->src_addr);
 
      json_array_append_new(array, value);
      return 1;
-
 }
 
 static int metrics_domian_expired_check(hashNode *node,void *now){
