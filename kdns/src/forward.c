@@ -77,12 +77,9 @@ typedef struct domin_fwd_query_{
 #define FWD_RING_SIZE   65536
 
 static domain_fwd_addrs *default_fwd_addrs = NULL ;
-
 static domain_fwd_addrs **zones_fwd_addrs = NULL ;
 static int g_fwd_zone_num = 0;
-
-rte_rwlock_t __fwd_lock;
-
+pthread_rwlock_t __fwd_lock;
 
 extern struct rte_mempool *pkt_mbuf_pool;
 struct rte_ring *master_fwd_pkt_ex_ring;
@@ -268,8 +265,11 @@ static int fwd_cache_lookup(char *domain, uint16_t qtype, char *cache_data, int 
 }
 
 int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
+    pthread_rwlockattr_t attr;
+    (void)pthread_rwlockattr_init(&attr);
+    (void)pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+    (void)pthread_rwlock_init(&__fwd_lock, &attr);
 
-    rte_rwlock_init(&__fwd_lock);
     fwd_cache_init();
 
     default_fwd_addrs = resolve_dns_servers("defulat.zone",fwd_def_addr);
@@ -413,14 +413,14 @@ static int dns_query_remote(char *domain, uint16_t qtype, char *query_data, ssiz
 {
     int i = 0;
 
-    rte_rwlock_read_lock(&__fwd_lock);
+    pthread_rwlock_rdlock(&__fwd_lock);
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (; i < fwd_addrs->servers_len; ++i) {
         dns_addr_t *server_addrs = &fwd_addrs->server_addrs[i];
         int recv_len = dns_do_remote_query(query_data, query_len, recv_buf, recv_buf_len, server_addrs);
         if (recv_len > 0) {
             fwd_cache_update(domain, qtype, recv_buf, recv_len);
-            rte_rwlock_read_unlock(&__fwd_lock);
+            pthread_rwlock_unlock(&__fwd_lock);
             return recv_len;
         } else {
             char ip_src_str[INET_ADDRSTRLEN] = {0};
@@ -431,7 +431,7 @@ static int dns_query_remote(char *domain, uint16_t qtype, char *query_data, ssiz
                 ip_dst_str, ntohs(((struct sockaddr_in *)server_addrs->addr)->sin_port), ip_src_str, i);
         }
     }
-    rte_rwlock_read_unlock(&__fwd_lock);
+    pthread_rwlock_unlock(&__fwd_lock);
     return -1;
 }
 
@@ -602,10 +602,10 @@ int fwd_def_addrs_reload(char *addrs)
 
     new_def_fwd_addrs = resolve_dns_servers("defulat.zone", addrs);
     if (new_def_fwd_addrs) {
-        rte_rwlock_write_lock(&__fwd_lock);
+        pthread_rwlock_wrlock(&__fwd_lock);
         old_def_fwd_addrs = default_fwd_addrs;
         default_fwd_addrs = new_def_fwd_addrs;
-        rte_rwlock_write_unlock(&__fwd_lock);
+        pthread_rwlock_unlock(&__fwd_lock);
     }
 
     if (old_def_fwd_addrs) {
@@ -630,12 +630,12 @@ int fwd_addrs_reload(char *addrs)
         return -1;
 
     new_fwd_addrs = parse_dns_fwd_zones(addrs, &new_zone_num);
-    rte_rwlock_write_lock(&__fwd_lock);
+    pthread_rwlock_wrlock(&__fwd_lock);
     old_fwd_addrs = zones_fwd_addrs;
     zones_fwd_addrs = new_fwd_addrs;
     old_zone_num = g_fwd_zone_num;
     g_fwd_zone_num = new_zone_num;
-    rte_rwlock_write_unlock(&__fwd_lock);
+    pthread_rwlock_unlock(&__fwd_lock);
 
     if (old_fwd_addrs) {
         for (index = 0; index < old_zone_num; index++) {

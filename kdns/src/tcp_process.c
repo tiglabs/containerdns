@@ -115,7 +115,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
 
     tcp_stats.dns_fwd_rcv_tcp++;
-    rte_rwlock_read_lock(&__fwd_lock);
+    pthread_rwlock_rdlock(&__fwd_lock);
     domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
     for (;i < fwd_addrs->servers_len; i++){
         retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, TCP_MAX_MESSAGE_LEN, &fwd_addrs->server_addrs[i]);
@@ -132,7 +132,7 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
         }
     }
 
-    rte_rwlock_read_unlock(&__fwd_lock);
+    pthread_rwlock_unlock(&__fwd_lock);
     if (retfwd > 0){
         if(send(respond_sock,recv_buf,retfwd,0) == -1){   
             log_msg(LOG_ERR,"last send error %s\n", domain);
