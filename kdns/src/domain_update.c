@@ -149,7 +149,7 @@ static void domain_list_del_pre_zone(char *zone_name)
 
 void domain_list_del_zone(char *zones)
 {
-    log_msg(LOG_INFO, "domain list del zones: %s\n", zones);
+    log_msg(LOG_INFO, "domain list del zones: %s.\n", zones);
 
     char zoneTmp[ZONES_STR_LEN] = {0};
     memcpy(zoneTmp, zones, strlen(zones));

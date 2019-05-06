@@ -263,7 +263,7 @@ int process_slave(__attribute__((unused)) void *arg) {
     view_msg_ring_create();
     
     while (1){
-        zones_reload_pre_core();
+        config_reload_pre_core();
         view_msg_slave_process();
         domain_msg_slave_process();
         struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST] ={0};
@@ -349,7 +349,7 @@ void process_master(__attribute__((unused)) void *arg) {
         struct rte_mbuf *pkts_kni_rx[NETIF_MAX_PKT_BURST];
         unsigned pkt_num;
 
-        zones_reload_pre_core();
+        config_reload_pre_core();
         view_msg_master_process();
         domain_msg_master_process();
         uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx,NETIF_MAX_PKT_BURST);

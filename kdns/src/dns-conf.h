@@ -27,6 +27,8 @@ struct comm_config {
      char *fwd_addrs;
      char *fwd_def_addrs;
      uint16_t fwd_threads;
+     uint16_t fwd_timeout;
+     char *fwd_mode;
      int   ssl_enable;
      char *key_pem_file;
      char *cert_pem_file;
@@ -59,6 +61,6 @@ struct dns_config {
 extern struct dns_config *g_dns_cfg;
 
 void config_file_load( char *cfgfile_path, char *proc_name);
-int zones_reload_pre_core(void);
+int config_reload_pre_core(void);
 int config_reload_proc(char* dns_cfgfile);
 #endif

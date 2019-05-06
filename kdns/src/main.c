@@ -177,7 +177,7 @@ int  main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    remote_sock_init(g_dns_cfg->comm.fwd_addrs,g_dns_cfg->comm.fwd_def_addrs,g_dns_cfg->comm.fwd_threads);
+    fwd_server_init();
 
     netif_queue_core_bind();
 

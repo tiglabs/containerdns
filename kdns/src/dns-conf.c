@@ -11,13 +11,19 @@
 #include "parser.h"
 
 #define DEF_CONFIG_LOG_FILE "/export/log/kdns/kdns.log"
-
 #define DEF_FWD_ADDRS "8.8.8.8:53,114.114.114.114:53"
+
+#define RELOAD_ZONES                (0x1 << 0)
+#define RELOAD_FWD_MODE             (0x1 << 1)
+#define RELOAD_FWD_TIMEOUT          (0x1 << 2)
+#define RELOAD_FWD_DEFAULT_ADDRS    (0x1 << 3)
+#define RELOAD_FWD_ZONES_ADDRS      (0x1 << 4)
+static rte_atomic16_t g_reload_perflag[MAX_CORES] = {RTE_ATOMIC16_INIT(0)};
+static uint16_t g_reload_flag;
 
 struct dns_config *g_dns_cfg;
 struct dns_config *g_reload_dns_cfg = NULL;
 struct zones_reload *g_reload_zone = NULL;
-char g_reload_flag[MAX_CORES];
 extern struct kdns dpdk_dns[MAX_CORES];
 extern struct kdns kdns_tcp;
 
@@ -107,7 +113,23 @@ common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
         cfg->fwd_threads = 1; 
     }
 
-    
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-timeout");
+    if (entry) {
+        if (parser_read_uint16(&cfg->fwd_timeout, entry) < 0) {
+            printf("Cannot read COMMON/fwd-timeout = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->fwd_timeout = 2;
+    }
+
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-mode");
+    if (entry) {
+        cfg->fwd_mode = strdup(entry);
+    } else {
+        cfg->fwd_mode = strdup("cache");
+    }
+
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "web-port");
     if (entry && parser_read_uint16(&cfg->web_port, entry) < 0) {
         printf("Cannot read COMMON/web-port = %s.\n", entry);
@@ -274,6 +296,24 @@ static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_co
         cfg->fwd_addrs = strdup("");
     }
 
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-timeout");
+    if (entry) {
+        if (parser_read_uint16(&cfg->fwd_timeout, entry) < 0){
+            printf("Cannot read COMMON/fwd-timeout = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->fwd_timeout = 2;
+    }
+
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-mode");
+    if (entry) {
+        cfg->fwd_mode = strdup(entry);
+    } else {
+        cfg->fwd_mode = strdup("cache");
+    }
+
+
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "zones");
     if (entry){
         cfg->zones = strdup(entry);
@@ -369,6 +409,7 @@ static int config_fwd_def_addrs_reload_proc(void)
         g_dns_cfg->comm.fwd_def_addrs = g_reload_dns_cfg->comm.fwd_def_addrs;
         g_reload_dns_cfg->comm.fwd_def_addrs = NULL;
 
+        g_reload_flag |= RELOAD_FWD_DEFAULT_ADDRS;
         log_msg(LOG_INFO, "reload fwd_def_addrs success.");
         return 0;
     }
@@ -377,7 +418,7 @@ static int config_fwd_def_addrs_reload_proc(void)
     return 0;
 }
 
-static int config_fwd_addrs_reload_proc(void)
+static int config_fwd_zones_addrs_reload_proc(void)
 {
     int ret;
 
@@ -388,7 +429,7 @@ static int config_fwd_addrs_reload_proc(void)
         g_dns_cfg->comm.fwd_addrs, g_reload_dns_cfg->comm.fwd_addrs);
 
     if (strcmp(g_reload_dns_cfg->comm.fwd_addrs, g_dns_cfg->comm.fwd_addrs)) {
-        ret = fwd_addrs_reload(g_reload_dns_cfg->comm.fwd_addrs);
+        ret = fwd_zones_addrs_reload(g_reload_dns_cfg->comm.fwd_addrs);
         if (ret) {
             log_msg(LOG_ERR, "reload fwd_addrs error.");
             return ret;
@@ -398,11 +439,67 @@ static int config_fwd_addrs_reload_proc(void)
         g_dns_cfg->comm.fwd_addrs = g_reload_dns_cfg->comm.fwd_addrs;
         g_reload_dns_cfg->comm.fwd_addrs = NULL;
 
+        g_reload_flag |= RELOAD_FWD_ZONES_ADDRS;
         log_msg(LOG_INFO, "reload fwd_addrs success.");
         return 0;
     }
 
     log_msg(LOG_INFO, "reload fwd_addrs does not change.");
+    return 0;
+}
+
+static int config_fwd_timeout_reload_proc(void)
+{
+    int ret;
+
+    log_msg(LOG_INFO, "reload fwd_timeout old_fwd_timeout=(%d), new_fwd_timeout=(%d).",
+            g_dns_cfg->comm.fwd_timeout, g_reload_dns_cfg->comm.fwd_timeout);
+
+    if (g_reload_dns_cfg->comm.fwd_timeout != g_dns_cfg->comm.fwd_timeout) {
+        ret = fwd_timeout_reload(g_reload_dns_cfg->comm.fwd_timeout);
+        if (ret) {
+            log_msg(LOG_ERR, "reload fwd_timeout error.");
+            return ret;
+        }
+
+        g_dns_cfg->comm.fwd_timeout = g_reload_dns_cfg->comm.fwd_timeout;
+
+        g_reload_flag |= RELOAD_FWD_TIMEOUT;
+        log_msg(LOG_INFO, "reload fwd_timeout success.");
+        return 0;
+    }
+
+    log_msg(LOG_INFO, "reload fwd_timeout does not change.");
+    return 0;
+}
+
+static int config_fwd_mode_reload_proc(void)
+{
+    int ret;
+
+    if (!g_reload_dns_cfg->comm.fwd_mode)
+        return -1;
+
+    log_msg(LOG_INFO, "reload fwd_mode old_fwd_mode=(%s), new_fwd_mode=(%s).",
+            g_dns_cfg->comm.fwd_mode, g_reload_dns_cfg->comm.fwd_mode);
+
+    if (strcmp(g_reload_dns_cfg->comm.fwd_mode, g_dns_cfg->comm.fwd_mode)) {
+        ret = fwd_mode_reload(g_reload_dns_cfg->comm.fwd_mode);
+        if (ret) {
+            log_msg(LOG_ERR, "reload fwd_mode error.");
+            return ret;
+        }
+
+        free(g_dns_cfg->comm.fwd_mode);
+        g_dns_cfg->comm.fwd_mode = g_reload_dns_cfg->comm.fwd_mode;
+        g_reload_dns_cfg->comm.fwd_mode = NULL;
+
+        g_reload_flag |= RELOAD_FWD_MODE;
+        log_msg(LOG_INFO, "reload fwd_mode success.");
+        return 0;
+    }
+
+    log_msg(LOG_INFO, "reload fwd_mode does not change.");
     return 0;
 }
 
@@ -469,7 +566,7 @@ static int zones_realod_del_proc(struct kdns * lcore_kdns)
     return 0;
 }
 
-static int zones_reload_slave_proc(unsigned int cid)
+static int zones_reload_slave_proc(unsigned cid)
 {
     struct kdns * lcore_kdns = &dpdk_dns[cid];
     zones_realod_del_proc(lcore_kdns);
@@ -485,27 +582,32 @@ static int zones_reload_master_proc(void)
     return 0;
 }
 
-int zones_reload_pre_core(void)
+int config_reload_pre_core(void)
 {
-    unsigned int cid = rte_lcore_id();
+    unsigned cid = rte_lcore_id();
 
-    if (!g_reload_flag[cid])
+    uint16_t reload_flag = rte_atomic16_read(&g_reload_perflag[cid]);
+    if (reload_flag == 0) {
         return 0;
-
-    if (rte_get_master_lcore() == cid) {
-        zones_reload_master_proc();
-    } else {
-        zones_reload_slave_proc(cid);
     }
 
-    g_reload_flag[cid] = 0;
+    if (rte_get_master_lcore() == cid) {
+        if (reload_flag & RELOAD_ZONES) {
+            zones_reload_master_proc();
+        }
+    } else {
+        if (reload_flag & RELOAD_ZONES) {
+            zones_reload_slave_proc(cid);
+        }
+    }
+
+    rte_atomic16_clear(&g_reload_perflag[cid]);
     return 0;
 }
 
 static int zones_reload(char* new_zone)
 {
     int ret = 0;
-    int index = 0;
 
     ret = zones_cmp(new_zone, g_dns_cfg->comm.zones, g_reload_zone->add_zone, sizeof(g_reload_zone->add_zone));
     if (ret) {
@@ -513,18 +615,14 @@ static int zones_reload(char* new_zone)
         return ret;
     }
 
-    log_msg(LOG_INFO, "reload add zones %s", g_reload_zone->add_zone);
+    log_msg(LOG_INFO, "reload add zones: %s.", g_reload_zone->add_zone);
     ret = zones_cmp(g_dns_cfg->comm.zones, new_zone, g_reload_zone->del_zone, sizeof(g_reload_zone->del_zone));
     if (ret) {
         log_msg(LOG_ERR, "zones compare error. new_zone=[%s], old_zone=[%s]", new_zone, g_dns_cfg->comm.zones);
         return ret;
     }
 
-    log_msg(LOG_INFO, "reload delete zones %s", g_reload_zone->del_zone);
-
-    for (index = 0; index < MAX_CORES; index++) {
-        g_reload_flag[index] = 1;
-    }
+    log_msg(LOG_INFO, "reload delete zones: %s.", g_reload_zone->del_zone);
 
     return 0;
 }
@@ -549,6 +647,7 @@ static int config_zones_reload_proc(void)
         g_dns_cfg->comm.zones = g_reload_dns_cfg->comm.zones;
         g_reload_dns_cfg->comm.zones = NULL;
 
+        g_reload_flag |= RELOAD_ZONES;
         log_msg(LOG_INFO, "reload zones success.");
         return 0;
     }
@@ -578,6 +677,10 @@ static void config_reload_free(void)
         g_reload_dns_cfg->comm.fwd_addrs = NULL;
     }
 
+    if (g_reload_dns_cfg->comm.fwd_mode) {
+        free(g_reload_dns_cfg->comm.fwd_mode);
+        g_reload_dns_cfg->comm.fwd_mode = NULL;
+    }
 
     if (g_reload_dns_cfg->comm.zones) {
         free(g_reload_dns_cfg->comm.zones);
@@ -587,10 +690,11 @@ static void config_reload_free(void)
 
 int config_reload_proc(char* dns_cfgfile)
 {
-    int ret = 0;
+    int ret = 0, i = 0;
 
     log_msg(LOG_INFO, "start reload config file %s", dns_cfgfile);
 
+    g_reload_flag = 0;
     ret = config_file_reload(dns_cfgfile);
     if (ret)
         goto _out;
@@ -603,7 +707,15 @@ int config_reload_proc(char* dns_cfgfile)
     if (ret)
         goto _out;
 
-    ret = config_fwd_addrs_reload_proc();
+    ret = config_fwd_zones_addrs_reload_proc();
+    if (ret)
+        goto _out;
+
+    ret = config_fwd_timeout_reload_proc();
+    if (ret)
+        goto _out;
+
+    ret = config_fwd_mode_reload_proc();
     if (ret)
         goto _out;
 
@@ -612,6 +724,12 @@ int config_reload_proc(char* dns_cfgfile)
         goto _out;
 
 _out:
+    if (g_reload_flag) {
+        for (i = 0; i < MAX_CORES; ++i) {
+            rte_atomic16_set(&g_reload_perflag[i], g_reload_flag);
+        }
+    }
+
     config_reload_free();
     return ret;
 }

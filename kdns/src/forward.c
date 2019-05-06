@@ -40,13 +40,6 @@ struct fwd_pkt_input {
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
 };
 
-
-typedef struct {
-   char *zone_name;
-   char *fwd_addrs;
- } zone_fwd_input_tmp;
-
-
 typedef struct domin_fwd_cache{
     char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
     char  data[EDNS_MAX_MESSAGE_LEN];
@@ -76,9 +69,7 @@ typedef struct domin_fwd_query_{
 
 #define FWD_RING_SIZE   65536
 
-static domain_fwd_addrs *default_fwd_addrs = NULL ;
-static domain_fwd_addrs **zones_fwd_addrs = NULL ;
-static int g_fwd_zone_num = 0;
+domain_fwd_addrs_ctrl g_fwd_addrs_ctrl;
 pthread_rwlock_t __fwd_lock;
 
 extern struct rte_mempool *pkt_mbuf_pool;
@@ -86,8 +77,8 @@ struct rte_ring *master_fwd_pkt_ex_ring;
 struct rte_ring *fwd_pkt_to_process_ring;
 
 
-
-static domain_fwd_addrs * resolve_dns_servers(const char * domain_suffix,char * dns_addrs);
+static int fwd_mode_parse(char *mode);
+static domain_fwd_addrs *fwd_addrs_parse(const char * domain_suffix,char * dns_addrs);
 static void *thread_fwd_pkt_process(void *arg);
 static void *thread_fwd_cache_expired_cleanup(void *arg);
 
@@ -114,33 +105,32 @@ void fwd_statsdata_reset(void)
 	return;
 }
 
-static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
+static domain_fwd_addrs **fwd_zones_addrs_parse(char *addrs, int *fwd_zone_num) {
     int zone_idx = 1;
     char *zone_info = NULL;
     char buf[512];
-    char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
     char zone_addr[512];
     char fwd_addrs[512] = {0};
-    zone_fwd_input_tmp * fwd_input_tmp = NULL;
+    char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char *tmp_ptr;
 
     if (!addrs || strlen(addrs) == 0) {
         return NULL;
     }
     strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
 
-    log_msg(LOG_INFO, "parse_dns_fwd_zones fwd_addrs %s\n", fwd_addrs);
+    log_msg(LOG_INFO, "fwd_zones_addrs_parse fwd_addrs %s\n", fwd_addrs);
     char *pch = strchr(fwd_addrs, '%');
     while (pch != NULL) {
         zone_idx++;
         pch = strchr(pch + 1, '%');
     }
 
-    domain_fwd_addrs** tmp_fwd_addrs = calloc(zone_idx, sizeof(domain_fwd_addrs*));
-    // in order to use resolve_dns_servers(),use fwd_input_tmp instead of strtok_r
-    fwd_input_tmp = calloc(zone_idx, sizeof(zone_fwd_input_tmp));
     *fwd_zone_num = zone_idx;
+    domain_fwd_addrs** tmp_fwd_addrs = calloc(zone_idx, sizeof(domain_fwd_addrs*));
+
     zone_idx = 0;
-    zone_info = strtok(fwd_addrs, "%");
+    zone_info = strtok_r(fwd_addrs, "%", &tmp_ptr);
     while (zone_info) {
         char *pos;
         memset(buf, 0, sizeof(buf));
@@ -156,22 +146,15 @@ static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
 
             memcpy(zone_name, buf, pos - buf);
             memcpy(zone_addr, pos+1, strlen(buf)+ buf - pos -1 );
-            fwd_input_tmp[zone_idx].zone_name = strdup(zone_name);
-            fwd_input_tmp[zone_idx].fwd_addrs = strdup(zone_addr);
+            tmp_fwd_addrs[zone_idx] = fwd_addrs_parse(zone_name, zone_addr);
         }else{
             log_msg(LOG_ERR, "wrong fmt %s\n", zone_info);
             exit(-1);
-        } 
+        }
         zone_idx++;
-        zone_info = strtok(NULL, "%");    
-    }
-    for (zone_idx =0; zone_idx < *fwd_zone_num; zone_idx++ ){
-        tmp_fwd_addrs[zone_idx] = resolve_dns_servers(fwd_input_tmp[zone_idx].zone_name,fwd_input_tmp[zone_idx].fwd_addrs);
-        free(fwd_input_tmp[zone_idx].zone_name);
-        free(fwd_input_tmp[zone_idx].fwd_addrs);
+        zone_info = strtok_r(NULL, "%", &tmp_ptr);
     }
 
-    free(fwd_input_tmp);
     return tmp_fwd_addrs;
 }
 
@@ -264,17 +247,19 @@ static int fwd_cache_lookup(char *domain, uint16_t qtype, char *cache_data, int 
     return out.status;
 }
 
-int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
+int fwd_server_init(void){
     pthread_rwlockattr_t attr;
     (void)pthread_rwlockattr_init(&attr);
     (void)pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
     (void)pthread_rwlock_init(&__fwd_lock, &attr);
 
+    g_fwd_addrs_ctrl.mode = fwd_mode_parse(g_dns_cfg->comm.fwd_mode);
+    g_fwd_addrs_ctrl.timeout = g_dns_cfg->comm.fwd_timeout;
+    g_fwd_addrs_ctrl.default_addrs = fwd_addrs_parse("defulat.zone", g_dns_cfg->comm.fwd_def_addrs);
+    g_fwd_addrs_ctrl.zones_addrs = fwd_zones_addrs_parse(g_dns_cfg->comm.fwd_addrs, &g_fwd_addrs_ctrl.zones_addrs_num);
+
     fwd_cache_init();
 
-    default_fwd_addrs = resolve_dns_servers("defulat.zone",fwd_def_addr);
-    zones_fwd_addrs = parse_dns_fwd_zones(fwd_addrs, &g_fwd_zone_num);
-    
     master_fwd_pkt_ex_ring = rte_ring_create("master_fwd_pkt_ex_ring", FWD_RING_SIZE, rte_socket_id(), RING_F_SC_DEQ);
     if (!master_fwd_pkt_ex_ring) {
         log_msg(LOG_ERR, "Cannot create ring master_fwd_pkt_ex_ring  %s\n", rte_strerror(rte_errno));
@@ -295,7 +280,7 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
 	rte_atomic64_init(&dns_fwd_rcv);
 	rte_atomic64_init(&dns_fwd_snd);
     int i = 0;
-    for( ;i< fwd_threads;i++){
+    for( ;i< g_dns_cfg->comm.fwd_threads;i++){
         pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
         pthread_create(thread_id, NULL, thread_fwd_pkt_process, NULL);
 
@@ -312,14 +297,13 @@ int remote_sock_init(char * fwd_addrs, char * fwd_def_addr,int fwd_threads){
     return 0;
 }
 
-static domain_fwd_addrs * resolve_dns_servers(const char *domain_suffix, char *addrs) {
-    
-    char buf[512];
+static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs) {
     struct addrinfo *addr_ip;
     struct addrinfo hints;
     char* token;
+    char buf[512];
     char dns_addrs[512] = {0};
-
+    const char *def_port = "53";
     int i=0,r = 0;
 
     strncpy(dns_addrs, addrs, MIN(sizeof(dns_addrs), strlen(addrs)));
@@ -332,52 +316,56 @@ static domain_fwd_addrs * resolve_dns_servers(const char *domain_suffix, char *a
         fwd_addrs->servers_len++;
         pch = strchr(pch + 1, ',');
     }
+    if (fwd_addrs->servers_len > FWD_MAX_ADDRS) {
+        log_msg(LOG_INFO, "domain_suffix :%s remote addr :%s, fwd addrs %d truncate to %d\n", domain_suffix, dns_addrs, fwd_addrs->servers_len, FWD_MAX_ADDRS);
+        fwd_addrs->servers_len = FWD_MAX_ADDRS;
+    }
 
     log_msg(LOG_INFO,"domain_suffix :%s remote addr :%s\n",domain_suffix,dns_addrs);
-    fwd_addrs->server_addrs = calloc(fwd_addrs->servers_len, sizeof(dns_addr_t));
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
     token = strtok(dns_addrs, ",");
-    while (token) {
+    while (token && i < fwd_addrs->servers_len) {
         char *port;
         memset(buf, 0, sizeof(buf));
         strncpy(buf, token, sizeof(buf) - 1);
         port = (strrchr(buf, ':'));
         if (port) {
-        *port = '\0';
-        port++;
+            *port = '\0';
+            port++;
         } else {
-            port = strdup("53");
+            port = (char *)def_port;
         }
         if (0 != (r = getaddrinfo(buf, port, &hints, &addr_ip))) {
             log_msg(LOG_ERR,"err  getaddrinfo \n");
             exit(-1);
         }
-        fwd_addrs->server_addrs[i].addr = addr_ip->ai_addr;
+        fwd_addrs->server_addrs[i].addr = *(addr_ip->ai_addr);
         fwd_addrs->server_addrs[i].addrlen = addr_ip->ai_addrlen;
+        freeaddrinfo(addr_ip);
         i++;
         token = strtok(0, ",");    
     }
     return fwd_addrs;
 }
 
-static int dns_do_remote_query(char *snd_buf, ssize_t snd_len, char *recv_buf, ssize_t recv_buf_len, dns_addr_t *id_addr) {
+static int dns_do_remote_query(char *snd_buf, ssize_t snd_len, char *recv_buf, ssize_t recv_buf_len, dns_addr_t *id_addr, int timeout) {
     int remote_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (remote_sock == -1) {
         log_msg(LOG_ERR,"dns_do_remote_query socket errno=%d, errinfo=%s\n", errno, strerror(errno));
         return -1;
     }
 
-    struct timeval tv = {2, 0};
+    struct timeval tv = {timeout, 0};
     if (setsockopt(remote_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
         log_msg(LOG_ERR,"dns_do_remote_query setsockopt SO_RCVTIMEO errno=%d, errinfo=%s\n", errno, strerror(errno));
         close(remote_sock);
         return -1;
     }
 
-    if (-1 == sendto(remote_sock, snd_buf, snd_len, 0, id_addr->addr, id_addr->addrlen)) {
+    if (-1 == sendto(remote_sock, snd_buf, snd_len, 0, &id_addr->addr, id_addr->addrlen)) {
         log_msg(LOG_ERR,"dns_do_remote_query sendto errno=%d, errinfo=%s\n", errno, strerror(errno));
         close(remote_sock);
         return -1;
@@ -396,42 +384,47 @@ static int dns_do_remote_query(char *snd_buf, ssize_t snd_len, char *recv_buf, s
     return recv_len;
 }
 
-domain_fwd_addrs * find_zone_fwd_addrs(char * domain_name){
+domain_fwd_addrs *fwd_addrs_find(char * domain_name){
     int i =0;
-    for(;i< g_fwd_zone_num; i++){
-        int zone_len = strlen(zones_fwd_addrs[i]->domain_name);
+    for(;i< g_fwd_addrs_ctrl.zones_addrs_num; i++){
+        int zone_len = strlen(g_fwd_addrs_ctrl.zones_addrs[i]->domain_name);
         int domain_len = strlen(domain_name);
-        if ((domain_len >= zone_len) && strncmp (domain_name + domain_len - zone_len ,zones_fwd_addrs[i]->domain_name,strlen(zones_fwd_addrs[i]->domain_name)) == 0 ){
-            return zones_fwd_addrs[i];
+        if ((domain_len >= zone_len) && strncmp (domain_name + domain_len - zone_len ,g_fwd_addrs_ctrl.zones_addrs[i]->domain_name,strlen(g_fwd_addrs_ctrl.zones_addrs[i]->domain_name)) == 0 ){
+            return g_fwd_addrs_ctrl.zones_addrs[i];
         }
     }
-    return default_fwd_addrs;  
+    return g_fwd_addrs_ctrl.default_addrs;
 }
 
 static int dns_query_remote(char *domain, uint16_t qtype, char *query_data, ssize_t query_len,
                                 char *recv_buf, ssize_t recv_buf_len, uint32_t src_addr)
 {
     int i = 0;
+    int fwd_timeout;
+    int servers_len;
+    dns_addr_t server_addrs[FWD_MAX_ADDRS];
 
     pthread_rwlock_rdlock(&__fwd_lock);
-    domain_fwd_addrs *fwd_addrs = find_zone_fwd_addrs(domain);
-    for (; i < fwd_addrs->servers_len; ++i) {
-        dns_addr_t *server_addrs = &fwd_addrs->server_addrs[i];
-        int recv_len = dns_do_remote_query(query_data, query_len, recv_buf, recv_buf_len, server_addrs);
+    fwd_timeout = g_fwd_addrs_ctrl.timeout;
+    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain);
+    servers_len = fwd_addrs->servers_len;
+    memcpy(&server_addrs, &fwd_addrs->server_addrs, sizeof(fwd_addrs->server_addrs));
+    pthread_rwlock_unlock(&__fwd_lock);
+
+    for (; i < servers_len; ++i) {
+        int recv_len = dns_do_remote_query(query_data, query_len, recv_buf, recv_buf_len, &server_addrs[i], fwd_timeout);
         if (recv_len > 0) {
             fwd_cache_update(domain, qtype, recv_buf, recv_len);
-            pthread_rwlock_unlock(&__fwd_lock);
             return recv_len;
-        } else {
-            char ip_src_str[INET_ADDRSTRLEN] = {0};
-            char ip_dst_str[INET_ADDRSTRLEN] = {0};
-            inet_ntop(AF_INET, (struct in_addr *)&src_addr, ip_src_str, sizeof(ip_src_str));
-            inet_ntop(AF_INET, &((struct sockaddr_in *)server_addrs->addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
-            log_msg(LOG_ERR, "Failed to requset %s, type %d, to %s:%d, from: %s, trycnt:%d\n", domain, qtype,
-                ip_dst_str, ntohs(((struct sockaddr_in *)server_addrs->addr)->sin_port), ip_src_str, i);
         }
+
+        char ip_src_str[INET_ADDRSTRLEN] = {0};
+        char ip_dst_str[INET_ADDRSTRLEN] = {0};
+        inet_ntop(AF_INET, (struct in_addr *)&src_addr, ip_src_str, sizeof(ip_src_str));
+        inet_ntop(AF_INET, &((struct sockaddr_in *)&server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
+        log_msg(LOG_ERR, "Failed to requset %s, type %d, to %s:%d, from: %s, trycnt:%d\n", domain, qtype,
+                ip_dst_str, ntohs(((struct sockaddr_in *)&server_addrs[i].addr)->sin_port), ip_src_str, i);
     }
-    pthread_rwlock_unlock(&__fwd_lock);
     return -1;
 }
 
@@ -600,25 +593,22 @@ int fwd_def_addrs_reload(char *addrs)
     if (!addrs)
         return -1;
 
-    new_def_fwd_addrs = resolve_dns_servers("defulat.zone", addrs);
+    new_def_fwd_addrs = fwd_addrs_parse("defulat.zone", addrs);
     if (new_def_fwd_addrs) {
         pthread_rwlock_wrlock(&__fwd_lock);
-        old_def_fwd_addrs = default_fwd_addrs;
-        default_fwd_addrs = new_def_fwd_addrs;
+        old_def_fwd_addrs = g_fwd_addrs_ctrl.default_addrs;
+        g_fwd_addrs_ctrl.default_addrs = new_def_fwd_addrs;
         pthread_rwlock_unlock(&__fwd_lock);
     }
 
     if (old_def_fwd_addrs) {
-        if (old_def_fwd_addrs->server_addrs)
-            free(old_def_fwd_addrs->server_addrs);
-
         free(old_def_fwd_addrs);
     }
 
     return 0;
 }
 
-int fwd_addrs_reload(char *addrs)
+int fwd_zones_addrs_reload(char *addrs)
 {
     int index = 0;
     int new_zone_num = 0;
@@ -629,23 +619,54 @@ int fwd_addrs_reload(char *addrs)
     if (!addrs)
         return -1;
 
-    new_fwd_addrs = parse_dns_fwd_zones(addrs, &new_zone_num);
+    new_fwd_addrs = fwd_zones_addrs_parse(addrs, &new_zone_num);
     pthread_rwlock_wrlock(&__fwd_lock);
-    old_fwd_addrs = zones_fwd_addrs;
-    zones_fwd_addrs = new_fwd_addrs;
-    old_zone_num = g_fwd_zone_num;
-    g_fwd_zone_num = new_zone_num;
+    old_fwd_addrs = g_fwd_addrs_ctrl.zones_addrs;
+    old_zone_num = g_fwd_addrs_ctrl.zones_addrs_num;
+
+    g_fwd_addrs_ctrl.zones_addrs = new_fwd_addrs;
+    g_fwd_addrs_ctrl.zones_addrs_num = new_zone_num;
     pthread_rwlock_unlock(&__fwd_lock);
 
     if (old_fwd_addrs) {
         for (index = 0; index < old_zone_num; index++) {
-            if (old_fwd_addrs[index]->server_addrs)
-                free(old_fwd_addrs[index]->server_addrs);
             free(old_fwd_addrs[index]);
         }
-
         free(old_fwd_addrs);
     }
+
+    return 0;
+}
+
+int fwd_timeout_reload(int timeout) {
+    pthread_rwlock_wrlock(&__fwd_lock);
+    g_fwd_addrs_ctrl.timeout = timeout;
+    pthread_rwlock_unlock(&__fwd_lock);
+    return 0;
+}
+
+static int fwd_mode_parse(char *mode) {
+    log_msg(LOG_INFO, "fwd_mode_parse mode %s\n", mode);
+    if (strcmp(mode, "disable") == 0) {
+        return FWD_MODE_DISABLE;
+    } else if (strcmp(mode, "direct") == 0) {
+        return FWD_MODE_DIRECT;
+    } else if (strcmp(mode, "cache") == 0) {
+        return FWD_MODE_CACHE;
+    } else {
+        return FWD_MODE_CACHE;
+    }
+}
+
+int fwd_mode_reload(char *mode) {
+    if (!mode) {
+        return -1;
+    }
+
+    int new_fwd_mode = fwd_mode_parse(mode);
+    pthread_rwlock_wrlock(&__fwd_lock);
+    g_fwd_addrs_ctrl.mode = new_fwd_mode;
+    pthread_rwlock_unlock(&__fwd_lock);
 
     return 0;
 }
