@@ -23,7 +23,6 @@
 #define CORE_ID_ERR         (0xFF)
 
 extern struct kdns dpdk_dns[MAX_CORES];
-extern int tcp_domian_databd_update(struct domin_info_update *update);
 
 static char *kdns_status;
 static struct web_instance *dins;

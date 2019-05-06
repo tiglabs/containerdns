@@ -19,7 +19,8 @@
 #include "dns-conf.h"
 #include "util.h"
 #include "forward.h"
-#include "domain_update.h" 
+#include "tcp_process.h"
+#include "domain_update.h"
 
 #define VERSION "0.2.1"
 #define DEFAULT_CONF_FILEPATH "/etc/kdns/kdns.cfg"

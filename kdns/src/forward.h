@@ -43,7 +43,6 @@ int fwd_server_init(void);
 int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,uint32_t src_addr, char *domain);
 uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_cnt);
 domain_fwd_addrs *fwd_addrs_find(char * domain_name);
-int dns_tcp_process_init(char *ip);
 void fwd_statsdata_get(struct netif_queue_stats *sta);
 void fwd_statsdata_reset(void);
 
