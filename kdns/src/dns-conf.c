@@ -27,9 +27,7 @@ struct zones_reload *g_reload_zone = NULL;
 extern struct kdns dpdk_dns[MAX_CORES];
 extern struct kdns kdns_tcp;
 
-static void
-dpdk_config_init(struct rte_cfgfile *cfgfile, struct dpdk_config *cfg,
-                 const char *proc_name) {
+static void dpdk_config_init(struct rte_cfgfile *cfgfile, struct dpdk_config *cfg, const char *proc_name) {
     const char *entry;
     char buffer[128];
 
@@ -78,39 +76,38 @@ dpdk_config_init(struct rte_cfgfile *cfgfile, struct dpdk_config *cfg,
 
 }
 
-static void
-common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
+static void common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg) {
     const char *entry;
-    
+
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "log-file");
     if (entry) {
-         cfg->log_file = strdup(entry);   
-    }else{
-        cfg->log_file = strdup(DEF_CONFIG_LOG_FILE); 
+        cfg->log_file = strdup(entry);
+    } else {
+        cfg->log_file = strdup(DEF_CONFIG_LOG_FILE);
     }
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-def-addrs");
     if (entry) {
-         cfg->fwd_def_addrs = strdup(entry);   
-    }else{
-        cfg->fwd_def_addrs = strdup(DEF_FWD_ADDRS); 
+        cfg->fwd_def_addrs = strdup(entry);
+    } else {
+        cfg->fwd_def_addrs = strdup(DEF_FWD_ADDRS);
     }
-    
+
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-addrs");
     if (entry) {
-         cfg->fwd_addrs = strdup(entry);   
-    }else{
+        cfg->fwd_addrs = strdup(entry);
+    } else {
         cfg->fwd_addrs = strdup("");
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-thread-num");
     if (entry) {
-         if (parser_read_uint16(&cfg->fwd_threads, entry) < 0){
-             printf("Cannot read COMMON/fwd-thread-num = %s.\n", entry);
-             exit(-1);
-         }
-          
-    }else{
-        cfg->fwd_threads = 1; 
+        if (parser_read_uint16(&cfg->fwd_threads, entry) < 0) {
+            printf("Cannot read COMMON/fwd-thread-num = %s.\n", entry);
+            exit(-1);
+        }
+
+    } else {
+        cfg->fwd_threads = 1;
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-timeout");
@@ -138,46 +135,43 @@ common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "ssl-enable");
     if (entry) {
-         cfg->ssl_enable = parser_read_arg_bool(entry);   
-    }else{
+        cfg->ssl_enable = parser_read_arg_bool(entry);
+    } else {
         printf("Cannot read COMMON/ssl-enable.\n");
-        exit(-1); 
+        exit(-1);
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "key-pem-file");
     if (entry) {
-         cfg->key_pem_file = strdup(entry);   
-    }else{
+        cfg->key_pem_file = strdup(entry);
+    } else {
         printf("Cannot read COMMON/key-pem-file.\n");
-        exit(-1); 
+        exit(-1);
     }
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "cert-pem-file");
     if (entry) {
-         cfg->cert_pem_file = strdup(entry);   
-    }else{
+        cfg->cert_pem_file = strdup(entry);
+    } else {
         printf("Cannot read COMMON/cert-pem-file.\n");
-        exit(-1); 
+        exit(-1);
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "zones");
-    if (entry){
+    if (entry) {
         cfg->zones = strdup(entry);
-    }else {
+    } else {
         printf("Cannot read COMMON/zones.\n");
         exit(-1);
     }
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "metrics-host");
     if (entry) {
-         cfg->metrics_host = strdup(entry);   
-    }else{
-        cfg->metrics_host = strdup("dns-metrics_host ^^"); 
+        cfg->metrics_host = strdup(entry);
+    } else {
+        cfg->metrics_host = strdup("dns-metrics_host ^^");
     }
 }
 
-
-
-static void
-netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config *cfg) {
+static void netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config *cfg) {
     const char *entry;
 
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "name-prefix");
@@ -189,14 +183,12 @@ netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config *cfg) {
         cfg->mode = strdup(entry);
     }
 
-
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "mbuf-num");
     if (entry && parser_read_uint16(&cfg->mbuf_num, entry) < 0) {
         printf("Cannot read NETDEV/mbuf-num = %s.\n", entry);
         exit(-1);
     }
 
-    
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "kni-mbuf-num");
     if (entry && parser_read_uint16(&cfg->kni_mbuf_num, entry) < 0) {
         printf("Cannot read NETDEV/kni-mbuf-num = %s.\n", entry);
@@ -240,16 +232,14 @@ netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config *cfg) {
 
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "kni-vip");
     if (entry) {
-       cfg->kni_vip = strdup(entry);
+        cfg->kni_vip = strdup(entry);
     } else {
         printf("No NETDEV/kni-vip options.\n");
         exit(-1);
     }
 }
 
-
-void
-config_file_load( char *cfgfile_path, char *proc_name) {
+void config_file_load(char *cfgfile_path, char *proc_name) {
     struct rte_cfgfile *cfgfile;
 
     g_dns_cfg = xalloc(sizeof(struct dns_config));
@@ -258,7 +248,6 @@ config_file_load( char *cfgfile_path, char *proc_name) {
         exit(-1);
     }
     memset(g_dns_cfg, 0, sizeof(struct dns_config));
-
 
     cfgfile = rte_cfgfile_load(cfgfile_path, 0);
     if (!cfgfile) {
@@ -272,33 +261,33 @@ config_file_load( char *cfgfile_path, char *proc_name) {
     rte_cfgfile_close(cfgfile);
 }
 
-static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg){
+static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_config *cfg) {
     const char *entry;
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "log-file");
     if (entry) {
-         cfg->log_file = strdup(entry);
-    }else{
+        cfg->log_file = strdup(entry);
+    } else {
         cfg->log_file = strdup(DEF_CONFIG_LOG_FILE);
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-def-addrs");
     if (entry) {
-         cfg->fwd_def_addrs = strdup(entry);
-    }else{
+        cfg->fwd_def_addrs = strdup(entry);
+    } else {
         cfg->fwd_def_addrs = strdup(DEF_FWD_ADDRS);
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-addrs");
     if (entry) {
-         cfg->fwd_addrs = strdup(entry);
-    }else{
+        cfg->fwd_addrs = strdup(entry);
+    } else {
         cfg->fwd_addrs = strdup("");
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-timeout");
     if (entry) {
-        if (parser_read_uint16(&cfg->fwd_timeout, entry) < 0){
+        if (parser_read_uint16(&cfg->fwd_timeout, entry) < 0) {
             printf("Cannot read COMMON/fwd-timeout = %s.\n", entry);
             exit(-1);
         }
@@ -313,19 +302,17 @@ static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_co
         cfg->fwd_mode = strdup("cache");
     }
 
-
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "zones");
-    if (entry){
+    if (entry) {
         cfg->zones = strdup(entry);
-    }else {
+    } else {
         log_msg(LOG_ERR, "Cannot read COMMON/zones.");
         return -1;
     }
     return 0;
 }
 
-static int config_file_reload(char *cfgfile_path)
-{
+static int config_file_reload(char *cfgfile_path) {
     int ret = 0;
     struct rte_cfgfile *cfgfile;
 
@@ -361,8 +348,7 @@ static int config_file_reload(char *cfgfile_path)
     return ret;
 }
 
-static int config_log_file_reload_proc(void)
-{
+static int config_log_file_reload_proc(void) {
     int ret = 0;
 
     if (!g_reload_dns_cfg->comm.log_file)
@@ -388,15 +374,14 @@ static int config_log_file_reload_proc(void)
     return 0;
 }
 
-static int config_fwd_def_addrs_reload_proc(void)
-{
+static int config_fwd_def_addrs_reload_proc(void) {
     int ret = 0;
 
     if (!g_reload_dns_cfg->comm.fwd_def_addrs)
         return -1;
 
     log_msg(LOG_INFO, "reload fwd_def_addrs old_fwd_def_addrs=(%s),new_fwd_def_addrs=(%s).",
-        g_dns_cfg->comm.fwd_def_addrs, g_reload_dns_cfg->comm.fwd_def_addrs);
+            g_dns_cfg->comm.fwd_def_addrs, g_reload_dns_cfg->comm.fwd_def_addrs);
 
     if (strcmp(g_reload_dns_cfg->comm.fwd_def_addrs, g_dns_cfg->comm.fwd_def_addrs)) {
         ret = fwd_def_addrs_reload(g_reload_dns_cfg->comm.fwd_def_addrs);
@@ -418,15 +403,14 @@ static int config_fwd_def_addrs_reload_proc(void)
     return 0;
 }
 
-static int config_fwd_zones_addrs_reload_proc(void)
-{
+static int config_fwd_zones_addrs_reload_proc(void) {
     int ret;
 
     if (!g_reload_dns_cfg->comm.fwd_addrs)
         return -1;
 
     log_msg(LOG_INFO, "reload fwd_addrs old_fwd_addrs=(%s),new_fwd_addrs=(%s).",
-        g_dns_cfg->comm.fwd_addrs, g_reload_dns_cfg->comm.fwd_addrs);
+            g_dns_cfg->comm.fwd_addrs, g_reload_dns_cfg->comm.fwd_addrs);
 
     if (strcmp(g_reload_dns_cfg->comm.fwd_addrs, g_dns_cfg->comm.fwd_addrs)) {
         ret = fwd_zones_addrs_reload(g_reload_dns_cfg->comm.fwd_addrs);
@@ -448,8 +432,7 @@ static int config_fwd_zones_addrs_reload_proc(void)
     return 0;
 }
 
-static int config_fwd_timeout_reload_proc(void)
-{
+static int config_fwd_timeout_reload_proc(void) {
     int ret;
 
     log_msg(LOG_INFO, "reload fwd_timeout old_fwd_timeout=(%d), new_fwd_timeout=(%d).",
@@ -473,8 +456,7 @@ static int config_fwd_timeout_reload_proc(void)
     return 0;
 }
 
-static int config_fwd_mode_reload_proc(void)
-{
+static int config_fwd_mode_reload_proc(void) {
     int ret;
 
     if (!g_reload_dns_cfg->comm.fwd_mode)
@@ -503,8 +485,7 @@ static int config_fwd_mode_reload_proc(void)
     return 0;
 }
 
-static int zones_find(char* name, char* zone)
-{
+static int zones_find(char *name, char *zone) {
     char name_buf[ZONES_STR_LEN] = {0};
     char zone_buf[ZONES_STR_LEN] = {0};
 
@@ -517,10 +498,9 @@ static int zones_find(char* name, char* zone)
     return 0;
 }
 
-static int zones_cmp(char* first_zone, char* sec_zone, char* cmp_zone, int cmp_len)
-{
+static int zones_cmp(char *first_zone, char *sec_zone, char *cmp_zone, int cmp_len) {
     char tmp_zone[ZONES_STR_LEN] = {0};
-    char* name;
+    char *name;
     int len = 0;
     int find = 0;
 
@@ -535,30 +515,24 @@ static int zones_cmp(char* first_zone, char* sec_zone, char* cmp_zone, int cmp_l
             } else {
                 snprintf(cmp_zone + len, cmp_len - len, "%s", name);
             }
-
             len = strlen(cmp_zone);
         }
-
         name = strtok(0, ",");
     }
 
     return 0;
 }
 
-static int zones_realod_add_proc(struct kdns * lcore_kdns)
-{
+static int zones_realod_add_proc(struct kdns *lcore_kdns) {
     if (!strlen(g_reload_zone->add_zone))
         return 0;
 
     domain_store_zones_check_create(lcore_kdns, g_reload_zone->add_zone);
-
     kdns_zones_soa_create(lcore_kdns->db, g_reload_zone->add_zone);
-
     return 0;
 }
 
-static int zones_realod_del_proc(struct kdns * lcore_kdns)
-{
+static int zones_realod_del_proc(struct kdns *lcore_kdns) {
     if (!strlen(g_reload_zone->del_zone))
         return 0;
 
@@ -566,24 +540,21 @@ static int zones_realod_del_proc(struct kdns * lcore_kdns)
     return 0;
 }
 
-static int zones_reload_slave_proc(unsigned cid)
-{
-    struct kdns * lcore_kdns = &dpdk_dns[cid];
+static int zones_reload_slave_proc(unsigned cid) {
+    struct kdns *lcore_kdns = &dpdk_dns[cid];
     zones_realod_del_proc(lcore_kdns);
     zones_realod_add_proc(lcore_kdns);
     return 0;
 }
 
-static int zones_reload_master_proc(void)
-{
+static int zones_reload_master_proc(void) {
     zones_realod_del_proc(&kdns_tcp);
     zones_realod_add_proc(&kdns_tcp);
     domain_list_del_zone(g_reload_zone->del_zone);
     return 0;
 }
 
-int config_reload_pre_core(void)
-{
+int config_reload_pre_core(void) {
     unsigned cid = rte_lcore_id();
 
     uint16_t reload_flag = rte_atomic16_read(&g_reload_perflag[cid]);
@@ -605,8 +576,7 @@ int config_reload_pre_core(void)
     return 0;
 }
 
-static int zones_reload(char* new_zone)
-{
+static int zones_reload(char *new_zone) {
     int ret = 0;
 
     ret = zones_cmp(new_zone, g_dns_cfg->comm.zones, g_reload_zone->add_zone, sizeof(g_reload_zone->add_zone));
@@ -614,21 +584,19 @@ static int zones_reload(char* new_zone)
         log_msg(LOG_ERR, "zones compare error. new_zone=[%s], old_zone=[%s]", new_zone, g_dns_cfg->comm.zones);
         return ret;
     }
-
     log_msg(LOG_INFO, "reload add zones: %s.", g_reload_zone->add_zone);
+
     ret = zones_cmp(g_dns_cfg->comm.zones, new_zone, g_reload_zone->del_zone, sizeof(g_reload_zone->del_zone));
     if (ret) {
         log_msg(LOG_ERR, "zones compare error. new_zone=[%s], old_zone=[%s]", new_zone, g_dns_cfg->comm.zones);
         return ret;
     }
-
     log_msg(LOG_INFO, "reload delete zones: %s.", g_reload_zone->del_zone);
 
     return 0;
 }
 
-static int config_zones_reload_proc(void)
-{
+static int config_zones_reload_proc(void) {
     int ret = 0;
 
     if (!g_reload_dns_cfg->comm.zones)
@@ -656,11 +624,11 @@ static int config_zones_reload_proc(void)
     return 0;
 }
 
-static void config_reload_free(void)
-{
+static void config_reload_free(void) {
     if (!g_reload_dns_cfg) {
         return;
     }
+
     if (g_reload_dns_cfg->comm.log_file) {
         free(g_reload_dns_cfg->comm.log_file);
         g_reload_dns_cfg->comm.log_file = NULL;
@@ -670,7 +638,6 @@ static void config_reload_free(void)
         free(g_reload_dns_cfg->comm.fwd_def_addrs);
         g_reload_dns_cfg->comm.fwd_def_addrs = NULL;
     }
-
 
     if (g_reload_dns_cfg->comm.fwd_addrs) {
         free(g_reload_dns_cfg->comm.fwd_addrs);
@@ -688,8 +655,7 @@ static void config_reload_free(void)
     }
 }
 
-int config_reload_proc(char* dns_cfgfile)
-{
+int config_reload_proc(char *dns_cfgfile) {
     int ret = 0, i = 0;
 
     log_msg(LOG_INFO, "start reload config file %s", dns_cfgfile);
