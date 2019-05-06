@@ -1,9 +1,8 @@
-
-
-#ifndef	_FORWARD_H_
-#define	_FORWARD_H_
+#ifndef _FORWARD_H_
+#define _FORWARD_H_
 
 #define _GNU_SOURCE
+
 #include <pthread.h>
 #include <rte_mbuf.h>
 #include <arpa/inet.h>
@@ -26,7 +25,7 @@ typedef struct {
 } dns_addr_t;
 
 typedef struct {
-    char  domain_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char domain_name[FWD_MAX_DOMAIN_NAME_LEN];
     int servers_len;
     dns_addr_t server_addrs[FWD_MAX_ADDRS];
 } domain_fwd_addrs;
@@ -39,15 +38,24 @@ typedef struct {
     domain_fwd_addrs **zones_addrs;
 } domain_fwd_addrs_ctrl;
 
-int fwd_server_init(void);
-int dns_handle_remote(struct rte_mbuf *pkt,uint16_t old_id,uint16_t qtype,uint32_t src_addr, char *domain);
-uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_cnt);
-domain_fwd_addrs *fwd_addrs_find(char * domain_name);
-void fwd_statsdata_get(struct netif_queue_stats *sta);
-void fwd_statsdata_reset(void);
+domain_fwd_addrs *fwd_addrs_find(char *domain_name);
+
+int fwd_zones_addrs_reload(char *addrs);
 
 int fwd_def_addrs_reload(char *addrs);
-int fwd_zones_addrs_reload(char *addrs);
+
 int fwd_timeout_reload(int timeout);
+
 int fwd_mode_reload(char *mode);
-#endif	/*_FORWARD_H_*/
+
+void fwd_statsdata_get(struct netif_queue_stats *sta);
+
+void fwd_statsdata_reset(void);
+
+uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs, uint16_t pkts_cnt);
+
+int dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, uint32_t src_addr, char *domain);
+
+int fwd_server_init(void);
+
+#endif  /*_FORWARD_H_*/
