@@ -127,6 +127,16 @@ static void common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *
         cfg->fwd_mode = strdup("cache");
     }
 
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-mbuf-num");
+    if (entry) {
+        if (parser_read_uint32(&cfg->fwd_mbuf_num, entry) < 0) {
+            printf("Cannot read COMMON/fwd-mbuf-num = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->fwd_mbuf_num = 1023;
+    }
+
     entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "web-port");
     if (entry && parser_read_uint16(&cfg->web_port, entry) < 0) {
         printf("Cannot read COMMON/web-port = %s.\n", entry);
@@ -184,13 +194,13 @@ static void netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "mbuf-num");
-    if (entry && parser_read_uint16(&cfg->mbuf_num, entry) < 0) {
+    if (entry && parser_read_uint32(&cfg->mbuf_num, entry) < 0) {
         printf("Cannot read NETDEV/mbuf-num = %s.\n", entry);
         exit(-1);
     }
 
     entry = rte_cfgfile_get_entry(cfgfile, "NETDEV", "kni-mbuf-num");
-    if (entry && parser_read_uint16(&cfg->kni_mbuf_num, entry) < 0) {
+    if (entry && parser_read_uint32(&cfg->kni_mbuf_num, entry) < 0) {
         printf("Cannot read NETDEV/kni-mbuf-num = %s.\n", entry);
         exit(-1);
     }
@@ -569,6 +579,9 @@ int config_reload_pre_core(void) {
     } else {
         if (reload_flag & RELOAD_ZONES) {
             zones_reload_slave_proc(cid);
+        }
+        if (reload_flag & (RELOAD_FWD_TIMEOUT | RELOAD_FWD_MODE | RELOAD_FWD_DEFAULT_ADDRS | RELOAD_FWD_ZONES_ADDRS)) {
+            fwd_addrs_reload_proc(cid);
         }
     }
 

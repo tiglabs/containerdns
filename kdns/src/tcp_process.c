@@ -37,6 +37,7 @@ struct netif_queue_stats tcp_stats;
 void tcp_statsdata_get(struct netif_queue_stats *sta) {
     sta->dns_fwd_rcv_tcp = tcp_stats.dns_fwd_rcv_tcp;
     sta->dns_fwd_snd_tcp = tcp_stats.dns_fwd_snd_tcp;
+    sta->dns_fwd_lost_tcp = tcp_stats.dns_fwd_lost_tcp;
     sta->dns_pkts_rcv_tcp = tcp_stats.dns_pkts_rcv_tcp;
     sta->dns_pkts_snd_tcp = tcp_stats.dns_pkts_snd_tcp;
 
@@ -98,11 +99,12 @@ static int dns_do_remote_tcp_query(char *snd_buf, ssize_t snd_len, char *rvc_buf
     return ret;
 }
 
-static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_id, int snd_len, char *domain, uint16_t qtype, struct sockaddr_in *pin) {
-    (void)old_id;
+static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, int snd_len, struct sockaddr_in *pin, uint16_t id, uint16_t qtype, char *domain) {
+    (void)id;
     int i = 0;
     int retfwd = 0;
     char recv_buf[TCP_MAX_MESSAGE_LEN] = {0};
+    int fwd_mode;
     int fwd_timeout;
     int servers_len;
     dns_addr_t server_addrs[FWD_MAX_ADDRS];
@@ -110,13 +112,19 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
     tcp_stats.dns_fwd_rcv_tcp++;
 
     pthread_rwlock_rdlock(&__fwd_lock);
+    fwd_mode = g_fwd_addrs_ctrl.mode;
     fwd_timeout = g_fwd_addrs_ctrl.timeout;
-    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain);
+    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain, &g_fwd_addrs_ctrl);
     servers_len = fwd_addrs->servers_len;
     memcpy(&server_addrs, &fwd_addrs->server_addrs, sizeof(fwd_addrs->server_addrs));
     pthread_rwlock_unlock(&__fwd_lock);
 
-    for (;i < servers_len; i++){
+    if (fwd_mode == FWD_MODE_DISABLE) {
+        tcp_stats.dns_fwd_lost_tcp++;
+        return 0;
+    }
+
+    for (; i < servers_len; i++) {
         retfwd = dns_do_remote_tcp_query(snd_pkt, snd_len, recv_buf, TCP_MAX_MESSAGE_LEN, &server_addrs[i], fwd_timeout);
         if (retfwd > 0) {
             break;
@@ -126,12 +134,14 @@ static int dns_handle_tcp_remote(int respond_sock, char *snd_pkt, uint16_t old_i
         char ip_dst_str[INET_ADDRSTRLEN] = {0};
         inet_ntop(AF_INET, &pin->sin_addr, ip_src_str, sizeof(ip_src_str));
         inet_ntop(AF_INET, &((struct sockaddr_in *)&server_addrs[i].addr)->sin_addr, ip_dst_str, sizeof(ip_dst_str));
-        log_msg(LOG_ERR, "Failed to requset %s, type %d, to %s:%d, from: %s, trycnt:%d\n", domain, qtype,
-                ip_dst_str, ntohs(((struct sockaddr_in *)&server_addrs[i].addr)->sin_port), ip_src_str, i);
+        log_msg(LOG_ERR, "Failed to send tcp request: %s, type %d, to %s, from: %s, trycnt: %d\n",
+                domain, qtype, ip_dst_str, ip_src_str, i);
+        tcp_stats.dns_fwd_lost_tcp++;
     }
 
     if (retfwd > 0) {
         if (send(respond_sock, recv_buf, retfwd, 0) == -1) {
+            tcp_stats.dns_fwd_lost_tcp++;
             log_msg(LOG_ERR, "last send error %s\n", domain);
             return -1;
         }
@@ -255,8 +265,8 @@ static void *dns_tcp_process(void *arg) {
 
             if (GET_RCODE(query_tcp->packet) == RCODE_REFUSE) {
                 memcpy((buf + 2) + 2, &flags_old, 2);
-                dns_handle_tcp_remote(temp_sock_descriptor, buf, GET_ID(query_tcp->packet), 2 + tcp_query_len,
-                                      (char *)domain_name_to_string(query_tcp->qname, NULL), query_tcp->qtype, &pin);
+                dns_handle_tcp_remote(temp_sock_descriptor, buf, tcp_query_len + 2, &pin, GET_ID(query_tcp->packet), query_tcp->qtype,
+                                      (char *)domain_name_to_string(query_tcp->qname, NULL));
                 continue;
             }
 

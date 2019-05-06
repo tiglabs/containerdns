@@ -32,13 +32,13 @@ typedef struct {
 
 typedef struct {
     int mode;
-    int timeout;
+    int timeout;    //second
     domain_fwd_addrs *default_addrs;
     int zones_addrs_num;
     domain_fwd_addrs **zones_addrs;
 } domain_fwd_addrs_ctrl;
 
-domain_fwd_addrs *fwd_addrs_find(char *domain_name);
+domain_fwd_addrs *fwd_addrs_find(char *domain_name, domain_fwd_addrs_ctrl *ctrl);
 
 int fwd_zones_addrs_reload(char *addrs);
 
@@ -48,14 +48,20 @@ int fwd_timeout_reload(int timeout);
 
 int fwd_mode_reload(char *mode);
 
+int fwd_addrs_reload_proc(unsigned cid);
+
 void fwd_statsdata_get(struct netif_queue_stats *sta);
 
 void fwd_statsdata_reset(void);
 
-uint16_t fwd_pkts_dequeue(struct rte_mbuf **mbufs, uint16_t pkts_cnt);
+unsigned fwd_response_dequeue(struct rte_mbuf **pkts, unsigned pkts_cnt);
 
-int dns_handle_remote(struct rte_mbuf *pkt, uint16_t old_id, uint16_t qtype, uint32_t src_addr, char *domain);
+int fwd_query_enqueue(struct rte_mbuf *pkt, uint32_t src_addr, uint16_t id, uint16_t qtype, char *domain_name);
 
 int fwd_server_init(void);
+
+void *fwd_caches_get(__attribute__((unused))struct connection_info_struct *con_info, __attribute__((unused))char *url, int *len_response);
+
+void *fwd_caches_delete(__attribute__((unused))struct connection_info_struct *con_info, __attribute__((unused))char *url, int *len_response);
 
 #endif  /*_FORWARD_H_*/

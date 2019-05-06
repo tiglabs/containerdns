@@ -63,7 +63,7 @@ uint64_t time_now_usec(void){
 }
 
 
-static int metrics_check_equal(char *key, hashNode *node, __attribute__((unused)) void *check){
+static int metrics_check_equal(char *key, hashNode *node, __attribute__((unused))void *check){
     if (strcmp(key,node->key)==0){
         return 1;
     }
@@ -207,14 +207,23 @@ void metrics_domain_clientIp_update(char *domain, int64_t timeStart, uint32_t sr
 
 
 static void *thread_metrics_expired_cleanup(void *arg){
-	 (void)arg;
-     while (1){
+    (void)arg;
+    int del_nums = 0;
+
+    while (1) {
         sleep(600);
         uint64_t time_now = time_now_usec();
-        hmap_check_expired(g_metrics_fwd_domains, (void*)&time_now); 
-        hmap_check_expired(g_metrics_fwd_domains_client,(void*)&time_now);
+        del_nums = hmap_check_expired(g_metrics_fwd_domains, (void *)&time_now);
+        if (del_nums) {
+            log_msg(LOG_INFO, "metrics fwd domains expired: %d record dels\n", del_nums);
+        }
+
+        del_nums = hmap_check_expired(g_metrics_fwd_domains_client, (void *)&time_now);
+        if (del_nums) {
+            log_msg(LOG_INFO, "metrics fwd domains client expired: %d record dels\n", del_nums);
+        }
     }
-     return NULL;
+    return NULL;
 }
 
 static void *thread_metrics_domain_getAll(void *arg){

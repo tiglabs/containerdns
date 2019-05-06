@@ -34,11 +34,12 @@ struct netif_queue_stats
     uint64_t dns_lens_snd; /* Total lens of  transmitted packets. */
 
     uint64_t dns_fwd_rcv_udp; /* Total number of receive forward packets */
-    uint64_t dns_fwd_snd_udp; /* Total number of send to client forward packets */
+    uint64_t dns_fwd_snd_udp; /* Total number of response forward packets */
+    uint64_t dns_fwd_lost_udp; /* Total number of lost response forward packets */
 
-
-    uint64_t dns_fwd_rcv_tcp ;
-    uint64_t dns_fwd_snd_tcp  ;
+    uint64_t dns_fwd_rcv_tcp;
+    uint64_t dns_fwd_snd_tcp;
+    uint64_t dns_fwd_lost_tcp;
     uint64_t dns_pkts_rcv_tcp ;
     uint64_t dns_pkts_snd_tcp ;
 

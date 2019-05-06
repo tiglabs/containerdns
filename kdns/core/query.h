@@ -96,6 +96,8 @@ kdns_query_st *query_create(void);
  */
 void query_reset(kdns_query_st *query );
 
+int process_query_section(kdns_query_st *query);
+
 /*
  * Process a query and write the response in the query I/O buffer.
  */

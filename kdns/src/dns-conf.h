@@ -28,6 +28,7 @@ struct comm_config {
     char *fwd_mode;
     uint16_t fwd_threads;
     uint16_t fwd_timeout;
+    uint32_t fwd_mbuf_num;
     int ssl_enable;
     char *key_pem_file;
     char *cert_pem_file;
@@ -38,13 +39,13 @@ struct comm_config {
 struct netdev_config {
     char *name_prefix;
     char *mode;
-    uint16_t mbuf_num;
+    uint32_t mbuf_num;
     uint16_t rxq_desc_num;
     uint16_t txq_desc_num;
     uint16_t rxq_num;
     uint16_t txq_num;
 
-    uint16_t kni_mbuf_num;
+    uint32_t kni_mbuf_num;
     uint32_t kni_ip;
     char *kni_vip;
     uint32_t kni_gateway;

@@ -87,9 +87,6 @@ int hmap_check_expired(hashMap *map, void *arg) {
         }
         rte_rwlock_write_unlock(&map->locks[lockId]);
     }
-    if (del_num) {
-        log_msg(LOG_INFO, "hmap_check_expired:%d record dels \n", del_num);
-    }
     return del_num;
 }
 

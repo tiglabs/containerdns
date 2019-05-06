@@ -27,7 +27,6 @@
 #include "dns-conf.h"
 
 extern struct dns_config *g_dns_cfg;
-extern struct rte_mempool *pkt_mbuf_pool;
 extern struct rte_kni     *master_kni;
 extern struct net_device  kdns_net_device;
 static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf);
@@ -114,7 +113,7 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
 
             if(GET_RCODE(query->packet) == RCODE_REFUSE ) {
                    memcpy(bufdata + 2, &flags_old, 2);  
-                   dns_handle_remote(pkt,GET_ID(query->packet),query->qtype, ip_hdr_in->src_addr , (char *)domain_name_to_string(query->qname, NULL));
+                   fwd_query_enqueue(pkt, ip_hdr_in->src_addr, GET_ID(query->packet), query->qtype, (char *)domain_name_to_string(query->qname, NULL));
                   return 0;
             }
             if(query != NULL && retLen > 0) {
@@ -381,12 +380,12 @@ void process_master(__attribute__((unused)) void *arg) {
 
         //fwd
         struct rte_mbuf *fwd_pkts_tx[NETIF_MAX_PKT_BURST];
-        uint16_t fwd_count = fwd_pkts_dequeue(fwd_pkts_tx,NETIF_MAX_PKT_BURST);
+        unsigned fwd_count = fwd_response_dequeue(fwd_pkts_tx, NETIF_MAX_PKT_BURST);
         if (fwd_count != 0){
-            int nb_tx = rte_eth_tx_burst(0, 0, fwd_pkts_tx, (uint16_t)fwd_count);
+            uint16_t nb_tx = rte_eth_tx_burst(0, 0, fwd_pkts_tx, (uint16_t)fwd_count);
             if(nb_tx < fwd_count){
-                int i =0;
-                for(i = nb_tx; i < fwd_count; i ++  )
+                uint16_t i =0;
+                for(i = nb_tx; i < fwd_count; i++)
                     rte_pktmbuf_free(fwd_pkts_tx[i]);
            }
         }
