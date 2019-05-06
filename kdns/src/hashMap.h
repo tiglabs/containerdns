@@ -18,21 +18,21 @@ typedef struct hashMap_
     unsigned int bucketsSize; // 2^x -1
     unsigned int lockSize;    // 2^x -1
     unsigned int (*hashFun)(char *key);  
-    int (*equalFun)(char *key,void *data, hashNode *node);  // check the k-v
+    int (*equalFun)(char *key, hashNode *node, void *check);  // check the k-v
     int (*queryFun)(hashNode *node, void* arg);          // check the node
     int (*checkExpiredFun)(hashNode *node,void* arg);                 // 
     int (*getAllNodeFun)(hashNode *node, void* arg); 
 }hashMap;
 
-hashMap * hashMap_create(int bucketsSize, int lockSize, unsigned int (*hashFun)(char *key),
-    int(*equalFun)(char *key,void *data, hashNode *node),int (*queryFun)(hashNode *node,void* arg),
+hashMap * hmap_create(int bucketsSize, int lockSize, unsigned int (*hashFun)(char *key),
+    int(*equalFun)(char *key, hashNode *node, void *check),int (*queryFun)(hashNode *node,void* arg),
     int (*checkExpiredFun)(hashNode *node,void* arg),int (*getAllNodeFun)(hashNode *node, void* arg));
-int hmap_lookup(hashMap *map, 	char *key, void * data, void* output);
-void hmap_del(hashMap *map, char *key, void * data);
-void hmap_update(hashMap *map, char *key, void * data);
+int hmap_lookup(hashMap *map, 	char *key, void *check, void* arg);
+void hmap_del(hashMap *map, char *key, void *check);
+void hmap_update(hashMap *map, char *key, void *check, void *new_data);
 int hmap_check_expired(hashMap *map, void* arg);
 int hmap_get_all(hashMap *map, void* arg);
-
+void hmap_del_all(hashMap *map);
 
 
 

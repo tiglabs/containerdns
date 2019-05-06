@@ -175,11 +175,11 @@ static domain_fwd_addrs** parse_dns_fwd_zones(char *addrs, int *fwd_zone_num) {
     return tmp_fwd_addrs;
 }
 
-static int fwd_check_equal(char *key,void *data, hashNode *node){
+static int fwd_check_equal(char *key, hashNode *node, void *check){
     
     key = key;
-    domin_fwd_cache_st *fwdNode = (domin_fwd_cache_st*) data;
-    domin_fwd_cache_st *fwdNodeChk = (domin_fwd_cache_st*) node->data;
+    domin_fwd_cache_st *fwdNode = (domin_fwd_cache_st*)node->data;
+    domin_fwd_cache_st *fwdNodeChk = (domin_fwd_cache_st*)check;
 
     if (fwdNode->qtype == fwdNodeChk->qtype &&
             strcmp(fwdNode->domain_name,fwdNodeChk->domain_name)==0){
@@ -224,7 +224,7 @@ static int do_fwd_cache_expired_check(hashNode *node, void* arg){
 
 
 static void fwd_cache_init(void){
-    g_fwd_cache_hash = hashMap_create(FORWARD_HASH_SIZE, FORWARD_LOCK_SIZE, elfHashDomain, 
+    g_fwd_cache_hash = hmap_create(FORWARD_HASH_SIZE, FORWARD_LOCK_SIZE, elfHashDomain,
         fwd_check_equal, fwd_node_query, do_fwd_cache_expired_check, NULL); 
     }
 
@@ -237,7 +237,7 @@ static void fwd_cache_update(char *domain, uint16_t qtype, char *data, int data_
         newNode->qtype = qtype;
         memcpy(newNode->data,data,data_len);
         newNode->time_expired = time(NULL)+ 60; //second
-    hmap_update(g_fwd_cache_hash, domain, (void*)newNode);
+    hmap_update(g_fwd_cache_hash, domain, (void*)newNode, (void*)newNode);
 }
 
 

@@ -22,7 +22,7 @@ unsigned int elfHashDomain(char* str){
 
 
 
-void hmap_update(hashMap *map, char *key, void * data){
+void hmap_update(hashMap *map, char *key, void *check, void *new_data){
     hashNode *find;
    
     int hashValue = map->hashFun(key);
@@ -33,7 +33,7 @@ void hmap_update(hashMap *map, char *key, void * data){
 
     find = map->hashBuckets[hashId];
     while (find) {
-         if ((find->fingerprint == hashValue) && (map->equalFun(key,data, find))){
+         if ((find->fingerprint == hashValue) && (map->equalFun(key, find, check))){
             break;
         }
         find = find->next;
@@ -43,12 +43,12 @@ void hmap_update(hashMap *map, char *key, void * data){
         hashNode * newNode = xalloc_zero(sizeof(hashNode));
         newNode->fingerprint = hashValue;
         newNode->key  = strdup(key);
-        newNode->data  = data;  
+        newNode->data  = new_data;
         newNode->next = map->hashBuckets[hashId];
         map->hashBuckets[hashId] = newNode;
     } else {
         free(find->data);
-        find->data = data;
+        find->data = new_data;
     }
     rte_rwlock_write_unlock(&map->locks[lockId]);    
 }
@@ -73,9 +73,11 @@ int hmap_check_expired(hashMap *map,void* arg)
         pre = node = map->hashBuckets[hashId];
         while(node){ 
             if (map->checkExpiredFun(node, arg )){
-                pre->next = node->next;
-                if (node == map->hashBuckets[hashId]){
+                if (node == map->hashBuckets[hashId]) {
                     map->hashBuckets[hashId] = node->next;
+                    pre = map->hashBuckets[hashId];
+                } else {
+                    pre->next = node->next;
                 }
                 node_del = node;
                 node = node->next;
@@ -90,8 +92,10 @@ int hmap_check_expired(hashMap *map,void* arg)
         }
         rte_rwlock_write_unlock(&map->locks[lockId]);       
     }
-   log_msg(LOG_INFO,"hmap_check_expired:%d record dels \n",del_num ); 
-   return del_num;
+    if (del_num) {
+        log_msg(LOG_INFO,"hmap_check_expired:%d record dels \n",del_num );
+    }
+    return del_num;
 }
 
 
@@ -121,7 +125,7 @@ int hmap_get_all(hashMap *map, void* arg)
 
 
 
-int hmap_lookup(hashMap *map, 	char *key, void * data, void* arg)
+int hmap_lookup(hashMap *map, 	char *key, void * check, void* arg)
 {
     hashNode *find;
     int ret = -1;
@@ -133,7 +137,7 @@ int hmap_lookup(hashMap *map, 	char *key, void * data, void* arg)
     rte_rwlock_read_lock(&map->locks[lockId]);
     find = map->hashBuckets[hashId];
     while (find) {
-        if ((find->fingerprint == hashValue) && (map->equalFun(key,data, find))){
+        if ((find->fingerprint == hashValue) && (map->equalFun(key, find ,check))){
             break;
         }
         find = find->next;
@@ -146,7 +150,7 @@ int hmap_lookup(hashMap *map, 	char *key, void * data, void* arg)
     return ret;
 }
 
-void hmap_del(hashMap *map, char *key, void * data){
+void hmap_del(hashMap *map, char *key, void * check){
     hashNode *pre;
     hashNode *find;
 
@@ -158,7 +162,7 @@ void hmap_del(hashMap *map, char *key, void * data){
     pre  = find = map->hashBuckets[hashId];
 
     while(find){
-         if ((find->fingerprint == hashValue) && (map->equalFun(key,data, find))){
+         if ((find->fingerprint == hashValue) && (map->equalFun(key, find ,check))){
             break;
         }
         pre = find;
@@ -166,9 +170,10 @@ void hmap_del(hashMap *map, char *key, void * data){
     }
 
     if (find != NULL && pre != NULL ){
-        pre->next = find->next;
         if (find == map->hashBuckets[hashId]){
            map->hashBuckets[hashId] = find->next;
+        } else {
+            pre->next = find->next;
         }
         free(find->key);
         free(find->data);
@@ -177,7 +182,30 @@ void hmap_del(hashMap *map, char *key, void * data){
     rte_rwlock_write_unlock(&map->locks[lockId]);    
 }
 
+void hmap_del_all(hashMap *map) {
+    hashNode *node_del = NULL;
 
+    unsigned int hashId = 0;
+    unsigned int lockId = 0;
+    unsigned int del_num = 0;
+
+    for (; hashId < map->bucketsSize; hashId++) {
+        lockId = hashId & map->lockSize;
+        rte_rwlock_write_lock(&map->locks[lockId]);
+        while (map->hashBuckets[hashId]) {
+            node_del = map->hashBuckets[hashId];
+            map->hashBuckets[hashId] = map->hashBuckets[hashId]->next;
+            free(node_del->key);
+            free(node_del->data);
+            free(node_del);
+            del_num++;
+        }
+        rte_rwlock_write_unlock(&map->locks[lockId]);
+    }
+    if (del_num) {
+        log_msg(LOG_INFO,"hmap_del_all:%d record dels\n", del_num);
+    }
+}
 
 static int check_config_size(int a){
 	int b = a + 1;
@@ -188,8 +216,8 @@ static int check_config_size(int a){
 }
 
 
-hashMap * hashMap_create(int bucketsSize, int lockSize, unsigned int (*hashFun)(char *key),
-        int (*equalFun)(char *key,void *data, hashNode *node),int (*queryFun)(hashNode *node, void* arg),
+hashMap * hmap_create(int bucketsSize, int lockSize, unsigned int (*hashFun)(char *key),
+        int (*equalFun)(char *key, hashNode *node, void *check),int (*queryFun)(hashNode *node, void* arg),
         int (*checkExpiredFun)(hashNode *node,void* arg),int (*getAllNodeFun)(hashNode *node, void* arg)){
     
    if(check_config_size(bucketsSize) == 0) {
