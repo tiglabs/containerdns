@@ -23,7 +23,6 @@
 #define CORE_ID_ERR         (0xFF)
 
 extern struct kdns dpdk_dns[MAX_CORES];
-extern int tcp_domian_databd_update(struct domin_info_update *update);
 
 static char *kdns_status;
 static struct web_instance *dins;
@@ -149,7 +148,7 @@ static void domain_list_del_pre_zone(char *zone_name)
 
 void domain_list_del_zone(char *zones)
 {
-    log_msg(LOG_INFO, "domain list del zones: %s\n", zones);
+    log_msg(LOG_INFO, "domain list del zones: %s.\n", zones);
 
     char zoneTmp[ZONES_STR_LEN] = {0};
     memcpy(zoneTmp, zones, strlen(zones));
@@ -212,7 +211,7 @@ void domain_msg_master_process(void)
             } else if (unlikely(-ENOBUFS == res)) {
                 log_msg(LOG_ERR, " msg_ring of lcore %d is full\n", idx);
                 free(new_msg);
-            } else if (res) {
+            } else if (unlikely(res)) {
                 log_msg(LOG_ERR, "unkown error %d for rte_ring_enqueue lcore %d\n", res, idx);
                 free(new_msg);
             }
@@ -240,12 +239,8 @@ static int send_domain_msg_to_master(struct domin_info_update *msg, int tryNum)
     unsigned cid_master = get_master_lcore_id();
     int res = rte_ring_enqueue(domian_msg_ring[cid_master], (void *)msg);
     if (unlikely(-EDQUOT == res)) {
-        if (tryNum == 0) {
-            log_msg(LOG_ERR, "msg_ring of master lcore %d quota exceeded\n", cid_master);
-            log_msg(LOG_ERR, "inser domain:%s host :%s err!\n", msg->domain_name, msg->host);
-        }
-        free(msg);
-        return -1;
+        log_msg(LOG_ERR, "msg_ring of master lcore %d quota exceeded\n", cid_master);
+        log_msg(LOG_ERR, "inser domain:%s host :%s err!\n", msg->domain_name, msg->host);
     } else if (unlikely(-ENOBUFS == res)) {
         if (tryNum == 0) {
             log_msg(LOG_ERR, "msg_ring of master lcore %d is full\n", cid_master);
@@ -253,7 +248,7 @@ static int send_domain_msg_to_master(struct domin_info_update *msg, int tryNum)
         }
         free(msg);
         return -1;
-    } else if (res) {
+    } else if (unlikely(res)) {
         if (tryNum == 0) {
             log_msg(LOG_ERR, "unkown error %d for rte_ring_enqueue master lcore %d\n", res, cid_master);
             log_msg(LOG_ERR, "inser domain:%s host :%s err!\n", msg->domain_name, msg->host);
@@ -721,7 +716,7 @@ static void *statistics_get(__attribute__((unused)) struct connection_info_struc
 
     json_t *value = json_pack("{s:i, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
                                 s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
-                                s:f, s:f, s:f}",
+                                s:f, s:f, s:f, s:f, s:f}",
                                 "domain_num", domain_num_get(), "pkts_rcv", (double)sta.pkts_rcv,
                                 "dns_pkts_rcv", (double)sta.dns_pkts_rcv, "dns_pkts_snd", (double)sta.dns_pkts_snd,
                                 "pkt_dropped", (double)sta.pkt_dropped, "pkts_2kni", (double)sta.pkts_2kni,
@@ -729,7 +724,8 @@ static void *statistics_get(__attribute__((unused)) struct connection_info_struc
                                 "dns_lens_rcv", (double)sta.dns_lens_rcv, "dns_lens_snd", (double)sta.dns_lens_snd,
                                 "tcp_pkts_rcv", (double)sta.dns_pkts_rcv_tcp, "tcp_pkts_snd", (double)sta.dns_pkts_snd_tcp,
                                 "tcp_fwd_rcv", (double)sta.dns_fwd_rcv_tcp, "tcp_fwd_snd", (double)sta.dns_fwd_snd_tcp,
-                                "udp_fwd_rcv", (double)sta.dns_fwd_rcv_udp, "udp_fwd_snd", (double)sta.dns_fwd_snd_udp,
+                                "tcp_fwd_lost", (double)sta.dns_fwd_lost_tcp, "udp_fwd_rcv", (double)sta.dns_fwd_rcv_udp,
+                                "udp_fwd_snd", (double)sta.dns_fwd_snd_udp, "udp_fwd_lost", (double)sta.dns_fwd_lost_udp,
                                 "metrics-maxtime", (double)sta.metrics.maxTime, "metrics-mintime", (double)sta.metrics.minTime,
                                 "metrics-sumtime", (double)sta.metrics.timeSum, "metrics1", (double)sta.metrics.metrics[0],
                                 "metrics2", (double)sta.metrics.metrics[1], "metrics3", (double)sta.metrics.metrics[2],
@@ -795,6 +791,9 @@ void domian_info_exchange_run(int port)
     web_endpoint_add("GET", "/kdns/metrics/domains", dins, &metrics_domains_get);
     web_endpoint_add("GET", "/kdns/metrics/clientIp", dins, &metrics_domains_clientIp_get);
 #endif
+
+    web_endpoint_add("GET", "/kdns/forward/caches", dins, &fwd_caches_get);
+    web_endpoint_add("DELETE", "/kdns/forward/caches", dins, &fwd_caches_delete);
 
     webserver_run(dins);
     return;

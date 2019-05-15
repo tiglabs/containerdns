@@ -19,7 +19,8 @@
 #include "dns-conf.h"
 #include "util.h"
 #include "forward.h"
-#include "domain_update.h" 
+#include "tcp_process.h"
+#include "domain_update.h"
 
 #define VERSION "0.2.1"
 #define DEFAULT_CONF_FILEPATH "/etc/kdns/kdns.cfg"
@@ -177,7 +178,7 @@ int  main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    remote_sock_init(g_dns_cfg->comm.fwd_addrs,g_dns_cfg->comm.fwd_def_addrs,g_dns_cfg->comm.fwd_threads);
+    fwd_server_init();
 
     netif_queue_core_bind();
 

@@ -63,7 +63,7 @@ uint64_t time_now_usec(void){
 }
 
 
-static int metrics_check_equal(char *key, __attribute__((unused)) void *data, hashNode *node){
+static int metrics_check_equal(char *key, hashNode *node, __attribute__((unused))void *check){
     if (strcmp(key,node->key)==0){
         return 1;
     }
@@ -185,7 +185,7 @@ void metrics_domain_update(char *domain, int64_t timeStart){
     newNode->firstQueryTime = newNode->lastQueryTime = timeStart;
     newNode->requestCount = 1;
     newNode->metrics.minTime = 0xffff; 
-    hmap_update(g_metrics_fwd_domains, domain, (void*)newNode);
+    hmap_update(g_metrics_fwd_domains, domain, NULL, (void*)newNode);
 }
 
 void metrics_domain_clientIp_update(char *domain, int64_t timeStart, uint32_t src_addr){
@@ -202,19 +202,28 @@ void metrics_domain_clientIp_update(char *domain, int64_t timeStart, uint32_t sr
     newNode->src_addr = src_addr;
     newNode->requestCount = 1;
   
-    hmap_update(g_metrics_fwd_domains_client, key, (void*)newNode);
+    hmap_update(g_metrics_fwd_domains_client, key, NULL, (void*)newNode);
 }
 
 
 static void *thread_metrics_expired_cleanup(void *arg){
-	 (void)arg;
-     while (1){
+    (void)arg;
+    int del_nums = 0;
+
+    while (1) {
         sleep(600);
         uint64_t time_now = time_now_usec();
-        hmap_check_expired(g_metrics_fwd_domains, (void*)&time_now); 
-        hmap_check_expired(g_metrics_fwd_domains_client,(void*)&time_now);
+        del_nums = hmap_check_expired(g_metrics_fwd_domains, (void *)&time_now);
+        if (del_nums) {
+            log_msg(LOG_INFO, "metrics fwd domains expired: %d record dels\n", del_nums);
+        }
+
+        del_nums = hmap_check_expired(g_metrics_fwd_domains_client, (void *)&time_now);
+        if (del_nums) {
+            log_msg(LOG_INFO, "metrics fwd domains client expired: %d record dels\n", del_nums);
+        }
     }
-     return NULL;
+    return NULL;
 }
 
 static void *thread_metrics_domain_getAll(void *arg){
@@ -293,9 +302,9 @@ void* metrics_domains_clientIp_get( __attribute__((unused)) struct connection_in
 }
 
 void fwd_metrics_init(void){
-    g_metrics_fwd_domains = hashMap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain, 
+    g_metrics_fwd_domains = hmap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain,
         metrics_check_equal, metrics_domain_query, metrics_domian_expired_check, metrics_domain_query_all_and_reset); 
-    g_metrics_fwd_domains_client = hashMap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain, 
+    g_metrics_fwd_domains_client = hmap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain,
         metrics_check_equal, metrics_domain_clientIp_query, metrics_clientIp_expired_check, metrics_domain_clientip_query_all); 
     
     json_metrics_fwd_domains = json_array();

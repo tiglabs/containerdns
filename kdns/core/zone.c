@@ -235,7 +235,7 @@ void domain_store_zones_check_create(struct kdns*  kdns, char* zones)
 	char zoneTmp[1024] = {0};
 	char* name ;
 	memcpy(zoneTmp,zones, strlen(zones));
-	log_msg(LOG_INFO,"zones: %s\n",zones);
+	log_msg(LOG_INFO,"create zones: %s.\n",zones);
 	name = strtok(zoneTmp, ",");
 	while (name) {
 		const domain_name_st* dname = (const domain_name_st*)domain_name_parse(name);
@@ -255,7 +255,7 @@ void domain_store_zones_check_delete(struct kdns* kdns, char* zones)
 	char zoneTmp[ZONES_STR_LEN] = {0};
 	char* name;
 	memcpy(zoneTmp, zones, strlen(zones));
-	log_msg(LOG_INFO, "delete zones: %s\n", zones);
+	log_msg(LOG_INFO, "delete zones: %s.\n", zones);
 
 	name = strtok(zoneTmp, ",");
 	while (name) {

@@ -110,7 +110,7 @@ query_reset(kdns_query_st *q )
  * is stored in QUERY->name, the class in QUERY->klass, and the type
  * in QUERY->type.
  */
-static int
+int
 process_query_section(kdns_query_st *query)
 {
 	uint8_t qnamebuf[MAXDOMAINLEN];

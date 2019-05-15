@@ -26,22 +26,17 @@ static int send_view_msg_to_master(struct view_info_update *msg, int tryNum){
     
     assert(msg);
     int res = rte_ring_enqueue(view_msg_ring[cid_master],(void *) msg);
-
     if (unlikely(-EDQUOT == res)) {
-        if (tryNum == 0){
         log_msg(LOG_ERR," msg_ring of master lcore %d quota exceeded\n", cid_master);
-        }
-        free (msg);
-        return -1;
    } else if (unlikely(-ENOBUFS == res)) {
-        if (tryNum == 0){
-        log_msg(LOG_ERR," msg_ring of master lcore %d is full\n", cid_master);
+        if (tryNum == 0) {
+            log_msg(LOG_ERR," msg_ring of master lcore %d is full\n", cid_master);
         }
         free(msg);
         return -1;
-   } else if (res) {
-        if (tryNum == 0){
-        log_msg(LOG_ERR,"unkown error %d for rte_ring_enqueue master lcore %d\n", res,cid_master);
+   } else if (unlikely(res)) {
+        if (tryNum == 0) {
+            log_msg(LOG_ERR,"unkown error %d for rte_ring_enqueue master lcore %d\n", res,cid_master);
         }
         free(msg);
         return -1;
@@ -327,17 +322,15 @@ void view_msg_master_process(void){
             }    
             struct view_info_update * new_msg = vmsg_copy(msg);
             int res = rte_ring_enqueue(view_msg_ring[idx], (void *)new_msg);
-
             if (unlikely(-EDQUOT == res)) {
-                printf(" msg_ring of lcore %d quota exceeded\n", idx);
-           } else if (unlikely(-ENOBUFS == res)) {
+                log_msg(LOG_INFO," msg_ring of lcore %d quota exceeded\n", idx);
+            } else if (unlikely(-ENOBUFS == res)) {
                 log_msg(LOG_ERR," msg_ring of lcore %d is full\n", idx);
                 free(new_msg);
-           } else if (res) {
+            } else if (unlikely(res)) {
                 log_msg(LOG_ERR,"unkown error %d for rte_ring_enqueue lcore %d\n", res,idx);
                 free(new_msg);
-           }
-             
+            }
         }
         // tcp use view_tree_master    
 
