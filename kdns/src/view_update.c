@@ -261,24 +261,21 @@ err_out:
  
 }
 
-void view_msg_ring_create(void){
+void view_msg_ring_create(unsigned lcore_id) {
+    char ring_name[32] = {0};
 
-    char ring_name[64]={0};
-    unsigned lcore_id = rte_lcore_id();
-    // slave core
-    if (dpdk_dns[lcore_id].db != NULL && (dpdk_dns[lcore_id].db->viewtree == NULL)) {
+    if (lcore_id == rte_get_master_lcore()) {
+        rte_rwlock_init(&view_lock_master);
+        view_tree_master = view_tree_create();
+    } else {
         dpdk_dns[lcore_id].db->viewtree = view_tree_create();
     }
-    if (view_tree_master == NULL) {
-        rte_rwlock_init(&view_lock_master); 
-        view_tree_master = view_tree_create();
-    }
+
     snprintf(ring_name, sizeof(ring_name), "view_ring_core%d", lcore_id);
-    view_msg_ring[lcore_id] = rte_ring_create(ring_name, MSG_RING_SIZE,
-            rte_socket_id(), 0);
+    view_msg_ring[lcore_id] = rte_ring_create(ring_name, MSG_RING_SIZE, rte_socket_id(), 0);
     if (unlikely(NULL == view_msg_ring[lcore_id])) {
-        log_msg(LOG_ERR, "Fail to create ring :%s  !\n",ring_name);
-        exit(-1) ;
+        log_msg(LOG_ERR, "Fail to create ring: %s!\n", ring_name);
+        exit(-1);
     }
 }
 
@@ -312,12 +309,10 @@ void view_msg_master_process(void){
             }
             // skip the no bind core
 
-             if(idx == cid_master){
-                struct view_info_update * new_msg = vmsg_copy(msg);
+            if (idx == cid_master) {
                 rte_rwlock_write_lock(&view_lock_master);
-                do_view_msg_update(view_tree_master,new_msg);
+                do_view_msg_update(view_tree_master, msg);
                 rte_rwlock_write_unlock(&view_lock_master);
-                free(new_msg);
                 continue;
             }    
             struct view_info_update * new_msg = vmsg_copy(msg);
@@ -346,14 +341,11 @@ void view_msg_slave_process(void){
     }   
 }
 
-
-
-void view_query_tcp(struct  query *query_tcp){
+void view_query_process(struct query *query) {
     rte_rwlock_read_lock(&view_lock_master);
-    view_value_t* data = view_find(view_tree_master, (uint8_t *)&query_tcp->sip,32);
-        if (data != VIEW_NO_NODE){
-           snprintf(query_tcp->view_name,MAX_VIEW_NAME_LEN,"%s",data->view_name);
-   }
-   rte_rwlock_read_unlock(&view_lock_master);          
+    view_value_t *data = view_find(view_tree_master, (uint8_t *)&query->sip, 32);
+    if (data != VIEW_NO_NODE) {
+        snprintf(query->view_name, MAX_VIEW_NAME_LEN, "%s", data->view_name);
+    }
+    rte_rwlock_read_unlock(&view_lock_master);
 }
-

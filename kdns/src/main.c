@@ -20,6 +20,7 @@
 #include "util.h"
 #include "forward.h"
 #include "tcp_process.h"
+#include "local_udp_process.h"
 #include "domain_update.h"
 
 #define VERSION "0.2.1"
@@ -188,15 +189,12 @@ int  main(int argc, char **argv)
     rte_pdump_init("/var/run/.dpdk");
 
     unsigned lcore_id;
-    RTE_LCORE_FOREACH_SLAVE(lcore_id) {     
-        if (kdns_init(lcore_id) < 0) {
-            log_msg(LOG_ERR, "Error:kdns_init lcore_id =%d\n",lcore_id); 
-            exit(-1);
-        }
+    RTE_LCORE_FOREACH_SLAVE(lcore_id) {
         rte_eal_remote_launch(process_slave, NULL, lcore_id);
     }
 
-    dns_tcp_process_init(g_dns_cfg->netdev.kni_vip);
+    tcp_process_init(g_dns_cfg->netdev.kni_vip);
+    local_udp_process_init(g_dns_cfg->netdev.kni_vip);
 
     process_master(NULL);
 

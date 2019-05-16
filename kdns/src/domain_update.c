@@ -14,6 +14,7 @@
 #include "netdev.h"
 #include "view_update.h"
 #include "tcp_process.h"
+#include "local_udp_process.h"
 #include "forward.h"
 #include "hashMap.h"
 #include "metrics.h"
@@ -170,18 +171,18 @@ static void domain_info_store(struct domin_info_update *msg)
     rte_rwlock_write_unlock(&domian_list_lock);
 }
 
-//  each master and slave call this func
-void domain_msg_ring_create(void)
-{
-    if (kdns_status == NULL) {
+// each master and slave call this func
+void domain_msg_ring_create(unsigned lcore_id) {
+    char ring_name[32] = {0};
+
+    if (lcore_id == rte_get_master_lcore()) {
         domain_info_preprocess();
     }
-    char ring_name[64] = {0};
-    unsigned lcore_id = rte_lcore_id();
+
     snprintf(ring_name, sizeof(ring_name), "msg_ring_core%d", lcore_id);
     domian_msg_ring[lcore_id] = rte_ring_create(ring_name, MSG_RING_SIZE, rte_socket_id(), 0);
     if (unlikely(NULL == domian_msg_ring[lcore_id])) {
-        log_msg(LOG_ERR, "Fail to create ring :%s!\n", ring_name);
+        log_msg(LOG_ERR, "Fail to create ring: %s!\n", ring_name);
         exit(-1);
     }
 }
@@ -218,9 +219,8 @@ void domain_msg_master_process(void)
                 free(new_msg);
             }
         }
-        struct domin_info_update *new_msg_tcp = msg_copy(msg);
-        tcp_domian_databd_update(new_msg_tcp);
-
+        tcp_domian_databd_update(msg);
+        local_udp_domian_databd_update(msg);
         domain_info_store(msg);
     }
 }

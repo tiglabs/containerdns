@@ -253,16 +253,17 @@ static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *co
 
 
 int process_slave(__attribute__((unused)) void *arg) {
+    int t,k;
     unsigned lcore_id = rte_lcore_id();
 
-    int t,k;
-    struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);    
-    printf("Starting core %u conf:  rx=%d, tx=%d \n", lcore_id,conf->rx_queue_id,conf->tx_queue_id);
-    domain_msg_ring_create();
-    view_msg_ring_create();
-    
+    kdns_init(lcore_id);
+    domain_msg_ring_create(lcore_id);
+    view_msg_ring_create(lcore_id);
+
+    struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
+    log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1){
-        config_reload_pre_core();
+        config_reload_pre_core(lcore_id);
         view_msg_slave_process();
         domain_msg_slave_process();
         struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST] ={0};
@@ -337,18 +338,20 @@ static int reset_master_affinity(void)
 }
 
 void process_master(__attribute__((unused)) void *arg) {
-    
-    domain_msg_ring_create();
-    view_msg_ring_create();
+    unsigned lcore_id = rte_lcore_id();
+
+    domain_msg_ring_create(lcore_id);
+    view_msg_ring_create(lcore_id);
 
     domian_info_exchange_run(g_dns_cfg->comm.web_port);
 
     reset_master_affinity();
+    log_msg(LOG_INFO, "Starting master core %u\n", lcore_id);
     while(1) {
         struct rte_mbuf *pkts_kni_rx[NETIF_MAX_PKT_BURST];
         unsigned pkt_num;
 
-        config_reload_pre_core();
+        config_reload_pre_core(lcore_id);
         view_msg_master_process();
         domain_msg_master_process();
         uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx,NETIF_MAX_PKT_BURST);

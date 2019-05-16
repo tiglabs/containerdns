@@ -26,7 +26,9 @@ struct dns_config *g_reload_dns_cfg = NULL;
 struct zones_reload *g_reload_zone = NULL;
 extern struct kdns dpdk_dns[MAX_CORES];
 extern rte_rwlock_t tcp_lock;
-extern struct kdns kdns_tcp;
+extern struct kdns tcp_kdns;
+extern rte_rwlock_t local_udp_lock;
+extern struct kdns local_udp_kdns;
 
 static void dpdk_config_init(struct rte_cfgfile *cfgfile, struct dpdk_config *cfg, const char *proc_name) {
     const char *entry;
@@ -551,44 +553,43 @@ static int zones_realod_del_proc(struct kdns *lcore_kdns) {
     return 0;
 }
 
-static int zones_reload_slave_proc(unsigned cid) {
-    struct kdns *lcore_kdns = &dpdk_dns[cid];
-    zones_realod_del_proc(lcore_kdns);
-    zones_realod_add_proc(lcore_kdns);
+static int zones_reload_pre_core(unsigned lcore_id) {
+    if (lcore_id == rte_get_master_lcore()) {
+        rte_rwlock_write_lock(&tcp_lock);
+        zones_realod_del_proc(&tcp_kdns);
+        zones_realod_add_proc(&tcp_kdns);
+        rte_rwlock_write_unlock(&tcp_lock);
+
+        rte_rwlock_write_lock(&local_udp_lock);
+        zones_realod_del_proc(&local_udp_kdns);
+        zones_realod_add_proc(&local_udp_kdns);
+        rte_rwlock_write_unlock(&local_udp_lock);
+
+        domain_list_del_zone(g_reload_zone->del_zone);
+    } else {
+        struct kdns *lcore_kdns = &dpdk_dns[lcore_id];
+        zones_realod_del_proc(lcore_kdns);
+        zones_realod_add_proc(lcore_kdns);
+    }
     return 0;
 }
 
-static int zones_reload_master_proc(void) {
-    rte_rwlock_write_lock(&tcp_lock);
-    zones_realod_del_proc(&kdns_tcp);
-    zones_realod_add_proc(&kdns_tcp);
-    rte_rwlock_write_unlock(&tcp_lock);
-    domain_list_del_zone(g_reload_zone->del_zone);
-    return 0;
-}
-
-int config_reload_pre_core(void) {
-    unsigned cid = rte_lcore_id();
-
-    uint16_t reload_flag = rte_atomic16_read(&g_reload_perflag[cid]);
+int config_reload_pre_core(unsigned lcore_id) {
+    uint16_t reload_flag = rte_atomic16_read(&g_reload_perflag[lcore_id]);
     if (reload_flag == 0) {
         return 0;
     }
 
-    if (rte_get_master_lcore() == cid) {
-        if (reload_flag & RELOAD_ZONES) {
-            zones_reload_master_proc();
-        }
-    } else {
-        if (reload_flag & RELOAD_ZONES) {
-            zones_reload_slave_proc(cid);
-        }
+    if (reload_flag & RELOAD_ZONES) {
+        zones_reload_pre_core(lcore_id);
+    }
+    if (lcore_id != rte_get_master_lcore()) {
         if (reload_flag & (RELOAD_FWD_TIMEOUT | RELOAD_FWD_MODE | RELOAD_FWD_DEFAULT_ADDRS | RELOAD_FWD_ZONES_ADDRS)) {
-            fwd_addrs_reload_proc(cid);
+            fwd_addrs_reload_proc(lcore_id);
         }
     }
 
-    rte_atomic16_clear(&g_reload_perflag[cid]);
+    rte_atomic16_clear(&g_reload_perflag[lcore_id]);
     return 0;
 }
 
