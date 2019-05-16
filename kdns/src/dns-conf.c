@@ -511,13 +511,13 @@ static int zones_find(char *name, char *zone) {
 
 static int zones_cmp(char *first_zone, char *sec_zone, char *cmp_zone, int cmp_len) {
     char tmp_zone[ZONES_STR_LEN] = {0};
-    char *name;
+    char *name, *tmp;
     int len = 0;
     int find = 0;
 
     memcpy(tmp_zone, first_zone, MIN(sizeof(tmp_zone), strlen(first_zone)));
 
-    name = strtok(tmp_zone, ",");
+    name = strtok_r(tmp_zone, ",", &tmp);
     while (name) {
         find = zones_find(name, sec_zone);
         if (!find) {
@@ -528,7 +528,7 @@ static int zones_cmp(char *first_zone, char *sec_zone, char *cmp_zone, int cmp_l
             }
             len = strlen(cmp_zone);
         }
-        name = strtok(0, ",");
+        name = strtok_r(0, ",", &tmp);
     }
 
     return 0;

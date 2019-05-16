@@ -148,14 +148,16 @@ static void domain_list_del_pre_zone(char *zone_name)
 
 void domain_list_del_zone(char *zones)
 {
+    char *name, *tmp;
+    char zoneTmp[ZONES_STR_LEN] = {0};
+
     log_msg(LOG_INFO, "domain list del zones: %s.\n", zones);
 
-    char zoneTmp[ZONES_STR_LEN] = {0};
     memcpy(zoneTmp, zones, strlen(zones));
-    char *name = strtok(zoneTmp, ",");
+    name = strtok_r(zoneTmp, ",", &tmp);
     while (name) {
         domain_list_del_pre_zone(name);
-        name = strtok(0, ",");
+        name = strtok_r(0, ",", &tmp);
     }
 }
 

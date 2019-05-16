@@ -233,10 +233,10 @@ domain_store_zone_delete(domain_store_type* db, zone_type* zone)
 void domain_store_zones_check_create(struct kdns*  kdns, char* zones)
 {
 	char zoneTmp[1024] = {0};
-	char* name ;
+	char *name, *tmp;
 	memcpy(zoneTmp,zones, strlen(zones));
 	log_msg(LOG_INFO,"create zones: %s.\n",zones);
-	name = strtok(zoneTmp, ",");
+	name = strtok_r(zoneTmp, ",", &tmp);
 	while (name) {
 		const domain_name_st* dname = (const domain_name_st*)domain_name_parse(name);
 		/* find zone to go with it, or create it */
@@ -245,7 +245,7 @@ void domain_store_zones_check_create(struct kdns*  kdns, char* zones)
 			zone = domain_store_zone_create( kdns->db, dname);
 		}
 		free((void *)dname);
-		name = strtok(0, ",");
+		name = strtok_r(0, ",", &tmp);
 	}
 	return;
 }
@@ -253,11 +253,11 @@ void domain_store_zones_check_create(struct kdns*  kdns, char* zones)
 void domain_store_zones_check_delete(struct kdns* kdns, char* zones)
 {
 	char zoneTmp[ZONES_STR_LEN] = {0};
-	char* name;
+	char *name, *tmp;
 	memcpy(zoneTmp, zones, strlen(zones));
 	log_msg(LOG_INFO, "delete zones: %s.\n", zones);
 
-	name = strtok(zoneTmp, ",");
+	name = strtok_r(zoneTmp, ",", &tmp);
 	while (name) {
 		const domain_name_st* dname = (const domain_name_st*)domain_name_parse(name);
 		/* find zone to go with it, or create it */
@@ -267,7 +267,7 @@ void domain_store_zones_check_delete(struct kdns* kdns, char* zones)
 			domain_store_zone_delete(kdns->db, zone);
 		}
 		free((void *)dname);
-		name = strtok(0, ",");
+		name = strtok_r(0, ",", &tmp);
 	}
 	return;
 }

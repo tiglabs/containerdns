@@ -87,14 +87,14 @@ int check_pid(const char *pid_file)
 void kdns_zones_soa_create(struct  domain_store *db,char * zonesName){
 
     char zoneTmp[1024] = {0};
-    char* name ;
+    char *name, *tmp;
     memcpy(zoneTmp,zonesName, strlen(zonesName));
     
-    name = strtok(zoneTmp, ",");
+    name = strtok_r(zoneTmp, ",", &tmp);
     while (name)
     { 
         domaindata_soa_insert(db,name);
-        name = strtok(0, ","); 
+        name = strtok_r(0, ",", &tmp);
     }
     return;
 }

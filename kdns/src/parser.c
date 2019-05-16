@@ -764,13 +764,13 @@ parse_pipeline_core(uint32_t *socket,
 int
 str_split(char *str, const char *delim, char *tokens[], int limit)
 {
-	char *p;
+	char *p, *tmp;
 	int count = 0;
 
-	p = strtok(str, delim);
+	p = strtok_r(str, delim, &tmp);
 	while (p != NULL && count < limit) {		
 		tokens[count++] = p;
-		p = strtok(NULL, delim);
+		p = strtok_r(NULL, delim, &tmp);
 	}
 	return count;
 }
@@ -778,17 +778,17 @@ str_split(char *str, const char *delim, char *tokens[], int limit)
 int
 parse_ipv4_port(const char *token, uint32_t *ip, uint16_t *port)
 {
-	char *t, *p;
+	char *t, *p, *tmp;
 
 	t = strdup(token);
 	if (t == NULL)
 		return -1;
-	p = strtok(t, ":");
+	p = strtok_r(t, ":", &tmp);
 	if (!p || parse_ipv4_addr(p, (struct in_addr *)ip) < 0) {
 		free(t);
 		return -1;
 	}
-	p = strtok(NULL, ":");
+	p = strtok_r(NULL, ":", &tmp);
 	if (!p || parser_read_uint16(port, p) < 0) {
 		free(t);
 		return -1;
