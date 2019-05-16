@@ -30,6 +30,7 @@
 extern struct dns_config *g_dns_cfg;
 extern domain_fwd_addrs_ctrl g_fwd_addrs_ctrl;
 
+rte_rwlock_t tcp_lock;
 struct kdns kdns_tcp;
 static struct query *query_tcp = NULL;
 struct netif_queue_stats tcp_stats;
@@ -50,7 +51,9 @@ void tcp_statsdata_reset(void) {
 }
 
 int tcp_domian_databd_update(struct domin_info_update *update) {
+    rte_rwlock_write_lock(&tcp_lock);
     int ret = domaindata_update(kdns_tcp.db, update);
+    rte_rwlock_write_unlock(&tcp_lock);
     free(update);
     return ret;
 }
@@ -259,9 +262,11 @@ static void *dns_tcp_process(void *arg) {
             query_tcp->sip = *(uint32_t *)&pin.sin_addr;
             view_query_tcp(query_tcp);
 
+            rte_rwlock_read_lock(&tcp_lock);
             if (query_process(query_tcp, &kdns_tcp) != QUERY_FAIL) {
                 buffer_flip(query_tcp->packet);
             }
+            rte_rwlock_read_unlock(&tcp_lock);
 
             if (GET_RCODE(query_tcp->packet) == RCODE_REFUSE) {
                 memcpy((buf + 2) + 2, &flags_old, 2);
@@ -286,6 +291,7 @@ static void *dns_tcp_process(void *arg) {
 }
 
 int dns_tcp_process_init(char *ip) {
+    rte_rwlock_init(&tcp_lock);
     memset(&kdns_tcp, 0, sizeof(kdns_tcp));
     if (dnsdata_prepare(&kdns_tcp) != 0) {
         log_msg(LOG_ERR, "server tcp preparation failed,could not be started\n");
@@ -297,4 +303,3 @@ int dns_tcp_process_init(char *ip) {
     pthread_setname_np(*thread_tcp_process, "kdns_tcp_proc");
     return 0;
 }
-

@@ -25,6 +25,7 @@ struct dns_config *g_dns_cfg;
 struct dns_config *g_reload_dns_cfg = NULL;
 struct zones_reload *g_reload_zone = NULL;
 extern struct kdns dpdk_dns[MAX_CORES];
+extern rte_rwlock_t tcp_lock;
 extern struct kdns kdns_tcp;
 
 static void dpdk_config_init(struct rte_cfgfile *cfgfile, struct dpdk_config *cfg, const char *proc_name) {
@@ -558,8 +559,10 @@ static int zones_reload_slave_proc(unsigned cid) {
 }
 
 static int zones_reload_master_proc(void) {
+    rte_rwlock_write_lock(&tcp_lock);
     zones_realod_del_proc(&kdns_tcp);
     zones_realod_add_proc(&kdns_tcp);
+    rte_rwlock_write_unlock(&tcp_lock);
     domain_list_del_zone(g_reload_zone->del_zone);
     return 0;
 }
