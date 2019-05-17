@@ -131,15 +131,42 @@ add_additional_rrsets(struct query *query, kdns_answer_st *answer,
 		      struct additional_rr_types types[])
 {
 	int i;
+	int ret;
+	int16_t match_num = 0;
+	int16_t view_match_num = 0;
+	int16_t def_match_num = 0;
+	int16_t *rrs_idx = NULL;
+	// max 128 record per view
+	int16_t view_rrs_idx[VIEW_MATCH_MAX_NUM];
+	int16_t def_rrs_idx[VIEW_MATCH_MAX_NUM];
 
 	assert(query);
 	assert(answer);
 	assert(master_rrset);
 	assert(rdata_atom_is_domain(rrset_rrtype(master_rrset), rdata_index));
 
+	// filter the view info
 	for (i = 0; i < master_rrset->rr_count; ++i) {
+		ret = check_view_info(query, &master_rrset->rrs[i]);
+		if (ret == VIEW_MATCH_NAME && view_match_num < VIEW_MATCH_MAX_NUM) {
+			view_rrs_idx[view_match_num++] = i;
+		} else if (ret == VIEW_MATCH_DEF && def_match_num < VIEW_MATCH_MAX_NUM) {
+			def_rrs_idx[def_match_num++] = i;
+		}
+	}
+	if (view_match_num) {
+		match_num = view_match_num;
+		rrs_idx = view_rrs_idx;
+	} else if (def_match_num) {
+		match_num = def_match_num;
+		rrs_idx = def_rrs_idx;
+	} else {
+		return;
+	}
+
+    for (i = 0; i < match_num; ++i) {
 		int j;
-		domain_type *additional = rdata_atom_domain(master_rrset->rrs[i].rdatas[rdata_index]);
+		domain_type *additional = rdata_atom_domain(master_rrset->rrs[rrs_idx[i]].rdatas[rdata_index]);
 		domain_type *match = additional;
 
 		assert(additional);
