@@ -887,7 +887,7 @@ void *fwd_caches_delete(__attribute__((unused))struct connection_info_struct *co
 static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs) {
     struct addrinfo *addr_ip;
     struct addrinfo hints;
-    char *token;
+    char *token, *tmp;
     char buf[512];
     char dns_addrs[512] = {0};
     const char *def_port = "53";
@@ -913,7 +913,7 @@ static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs)
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-    token = strtok(dns_addrs, ",");
+    token = strtok_r(dns_addrs, ",", &tmp);
     while (token && i < fwd_addrs->servers_len) {
         char *port;
         memset(buf, 0, sizeof(buf));
@@ -933,7 +933,7 @@ static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs)
         fwd_addrs->server_addrs[i].addrlen = addr_ip->ai_addrlen;
         freeaddrinfo(addr_ip);
         i++;
-        token = strtok(0, ",");
+        token = strtok_r(0, ",", &tmp);
     }
     return fwd_addrs;
 }

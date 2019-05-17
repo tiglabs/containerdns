@@ -61,7 +61,7 @@ extern struct dns_config *g_dns_cfg;
 
 void config_file_load(char *cfgfile_path, char *proc_name);
 
-int config_reload_pre_core(void);
+int config_reload_pre_core(unsigned lcore_id);
 
 int config_reload_proc(char *dns_cfgfile);
 

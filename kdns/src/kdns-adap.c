@@ -30,11 +30,6 @@ int dnsdata_prepare(struct kdns * kdns) {
     return 0;
 }
 
-static int  kdns_query_init(unsigned lcore_id) {
-    queries[lcore_id] = query_create();
-    return 0;
-}
-
 void write_pid(const char *pid_file)
 {
     /* get pid string */
@@ -87,34 +82,31 @@ int check_pid(const char *pid_file)
 void kdns_zones_soa_create(struct  domain_store *db,char * zonesName){
 
     char zoneTmp[1024] = {0};
-    char* name ;
+    char *name, *tmp;
     memcpy(zoneTmp,zonesName, strlen(zonesName));
     
-    name = strtok(zoneTmp, ",");
+    name = strtok_r(zoneTmp, ",", &tmp);
     while (name)
     { 
         domaindata_soa_insert(db,name);
-        name = strtok(0, ","); 
+        name = strtok_r(0, ",", &tmp);
     }
     return;
 }
 
-
-int kdns_init(unsigned lcore_id) {
-
-    struct kdns * lcore_kdns = &dpdk_dns[lcore_id]; 
-    memset(lcore_kdns, 0, sizeof(struct kdns));
-    if (dnsdata_prepare(lcore_kdns) != 0) {
-        log_msg(LOG_ERR,"server preparation failed,could not be started");
-        return -1;
+int kdns_prepare_init(struct kdns *kdns, struct query **query) {
+    *query = query_create();
+    memset(kdns, 0, sizeof(struct kdns));
+    if (dnsdata_prepare(kdns) != 0 || *query == NULL) {
+        log_msg(LOG_ERR, "server preparation failed, could not be started");
+        exit(-1);
     }
-    
-     kdns_query_init(lcore_id);
-
     return 0;
 }
 
-
+int kdns_init(unsigned lcore_id) {
+    return kdns_prepare_init(&dpdk_dns[lcore_id], &queries[lcore_id]);
+}
 
 kdns_query_st * dns_packet_proess(struct rte_mbuf *pkt , uint32_t sip,int offset, int received) {
     unsigned lcore_id = rte_lcore_id();
