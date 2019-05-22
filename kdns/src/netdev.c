@@ -69,7 +69,7 @@ static struct rte_eth_conf port_conf_rss = {
 	.rx_adv_conf = {
 		.rss_conf = {
 			.rss_key = NULL,
-			.rss_hf =  ETH_RSS_IP |ETH_RSS_UDP,
+			.rss_hf =  ETH_RSS_IP,
 		},
 	},
 	.txmode = {
@@ -456,7 +456,7 @@ void dns_dpdk_init(void){
 }
 
 
- int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) { 
+ int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
 
 #ifdef ENABLE_KDNS_METRICS
      uint64_t start_time = time_now_usec();
@@ -468,7 +468,7 @@ void dns_dpdk_init(void){
 
     switch(ntohs(eth_hdr->ether_type)) {
     case ETHER_TYPE_IPv4:
-        packet_l3_handle(pkt,conf);
+        packet_l3_handle(pkt, conf, lcore_id);
         break;
     case ETHER_TYPE_IPv6:
     default:

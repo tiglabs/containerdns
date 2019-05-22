@@ -34,6 +34,10 @@ struct comm_config {
     char *cert_pem_file;
     uint16_t web_port;
     char *metrics_host;
+
+    uint32_t all_per_second;
+    uint32_t fwd_per_second;
+    uint32_t client_num;
 };
 
 struct netdev_config {

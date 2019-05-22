@@ -81,7 +81,7 @@ void netif_statsdata_metrics_reset(void);
 
 
 
-int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf);
+int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id);
 
 void netif_queue_core_bind(void);
 
