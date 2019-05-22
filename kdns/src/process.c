@@ -76,14 +76,13 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsign
     //check the pkt
     if(ip_total_length  < ip_headlen) {
         conf->stats.pkt_len_err++;
-        printf("ip_total_length err :  ip_total_length(%d),ip_headlen(%d)\n", ip_total_length,ip_headlen);
+        log_msg(LOG_ERR, "ip_total_length err: ip_total_length(%d), ip_headlen(%d)\n", ip_total_length, ip_headlen);
         goto cleanup; 
     }
 
-    if(pkt->pkt_len < ip_total_length + ether_hdr_offset)
-    {
+    if(pkt->pkt_len < ip_total_length + ether_hdr_offset) {
         conf->stats.pkt_len_err++;
-        printf("pkt_len  err: pkt->pkt_len(%d)< ip_total_length(%d)+ ether_hdr(%d)\n",pkt->pkt_len , ip_total_length,ether_hdr_offset);
+        log_msg(LOG_ERR, "pkt_len err: pkt->pkt_len(%d) < ip_total_length(%d) + ether_hdr(%d)\n", pkt->pkt_len, ip_total_length, ether_hdr_offset);
         goto cleanup;
     }
 
@@ -96,9 +95,9 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsign
         eth_hdr_in = rte_pktmbuf_mtod(pkt, struct ether_hdr*);
         udp_hdr_in = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr*, ip_hdr_offset);
         if(ip_total_length != ip_headlen + ntohs(udp_hdr_in->dgram_len)) {
-             conf->stats.pkt_len_err++;
-             printf("udp_hdr_in->dgram_len  err: ip_total_length (%d) != ip_headlen(%d)+ dgram_len(%d)\n",ip_total_length , ip_headlen,ntohs(udp_hdr_in->dgram_len));
-             goto cleanup; 
+            conf->stats.pkt_len_err++;
+            log_msg(LOG_ERR, "udp_hdr_in->dgram_len err: ip_total_length (%d) != ip_headlen(%d)+ dgram_len(%d)\n",ip_total_length , ip_headlen,ntohs(udp_hdr_in->dgram_len));
+            goto cleanup;
         }
         
         if(udp_hdr_in->dst_port == UDP_PORT_53) { // port 53
@@ -303,7 +302,7 @@ int process_slave(__attribute__((unused)) void *arg) {
                int ntx = rte_eth_tx_burst(conf->port_id,conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
                conf->stats.dns_pkts_snd += ntx;
                if (unlikely(ntx != conf->tx_len)){
-                   printf("  rx =%d tx=%d  real tx =%d\n",rx_count,conf->tx_len,ntx);
+                   log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n",rx_count, conf->tx_len, ntx);
                    int i =0;
                    for (i = ntx; i < conf->tx_len; i++)
                        rte_pktmbuf_free(conf->tx_mbufs[i]);
