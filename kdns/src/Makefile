@@ -36,7 +36,8 @@ tcp_process.c \
 local_udp_process.c \
 process.c\
 hashMap.c\
-metrics.c	
+metrics.c\
+rate_limit.c
 
 ifdef KDNS_METRICS
 CFLAGS += -DENABLE_KDNS_METRICS

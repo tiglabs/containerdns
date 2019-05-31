@@ -25,6 +25,7 @@
 #include "domain_update.h"
 #include "view_update.h"
 #include "dns-conf.h"
+#include "rate_limit.h"
 
 extern struct dns_config *g_dns_cfg;
 extern struct rte_kni     *master_kni;
@@ -50,7 +51,7 @@ static void print_ip(uint32_t sip, uint32_t dip) {
 
 #endif
 
-int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
+int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
     
     struct ether_hdr *eth_hdr_in = NULL;
     struct ipv4_hdr  *ip_hdr_in = NULL;
@@ -75,26 +76,28 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
     //check the pkt
     if(ip_total_length  < ip_headlen) {
         conf->stats.pkt_len_err++;
-        printf("ip_total_length err :  ip_total_length(%d),ip_headlen(%d)\n", ip_total_length,ip_headlen);
+        log_msg(LOG_ERR, "ip_total_length err: ip_total_length(%d), ip_headlen(%d)\n", ip_total_length, ip_headlen);
         goto cleanup; 
     }
 
-    if(pkt->pkt_len < ip_total_length + ether_hdr_offset)
-    {
+    if(pkt->pkt_len < ip_total_length + ether_hdr_offset) {
         conf->stats.pkt_len_err++;
-        printf("pkt_len  err: pkt->pkt_len(%d)< ip_total_length(%d)+ ether_hdr(%d)\n",pkt->pkt_len , ip_total_length,ether_hdr_offset);
+        log_msg(LOG_ERR, "pkt_len err: pkt->pkt_len(%d) < ip_total_length(%d) + ether_hdr(%d)\n", pkt->pkt_len, ip_total_length, ether_hdr_offset);
         goto cleanup;
     }
-   
+
+    if (rate_limit(ip_hdr_in->src_addr, RATE_LIMIT_TYPE_ALL, lcore_id) != 0) {
+        goto cleanup;
+    }
 
     switch(ip_hdr_in->next_proto_id) {
     case IPPROTO_UDP:
         eth_hdr_in = rte_pktmbuf_mtod(pkt, struct ether_hdr*);
         udp_hdr_in = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr*, ip_hdr_offset);
         if(ip_total_length != ip_headlen + ntohs(udp_hdr_in->dgram_len)) {
-             conf->stats.pkt_len_err++;
-             printf("udp_hdr_in->dgram_len  err: ip_total_length (%d) != ip_headlen(%d)+ dgram_len(%d)\n",ip_total_length , ip_headlen,ntohs(udp_hdr_in->dgram_len));
-             goto cleanup; 
+            conf->stats.pkt_len_err++;
+            log_msg(LOG_ERR, "udp_hdr_in->dgram_len err: ip_total_length (%d) != ip_headlen(%d)+ dgram_len(%d)\n",ip_total_length , ip_headlen,ntohs(udp_hdr_in->dgram_len));
+            goto cleanup;
         }
         
         if(udp_hdr_in->dst_port == UDP_PORT_53) { // port 53
@@ -111,10 +114,14 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
             query = dns_packet_proess(pkt, ip_hdr_in->src_addr,udp_hdr_offset, received);
             int retLen = buffer_remaining(query->packet);
 
-            if(GET_RCODE(query->packet) == RCODE_REFUSE ) {
-                   memcpy(bufdata + 2, &flags_old, 2);  
-                   fwd_query_enqueue(pkt, ip_hdr_in->src_addr, GET_ID(query->packet), query->qtype, (char *)domain_name_to_string(query->qname, NULL));
-                  return 0;
+            if (GET_RCODE(query->packet) == RCODE_REFUSE) {
+                if (rate_limit(ip_hdr_in->src_addr, RATE_LIMIT_TYPE_FWD, lcore_id) != 0) {
+                    goto cleanup;
+                }
+
+                memcpy(bufdata + 2, &flags_old, 2);
+                fwd_query_enqueue(pkt, ip_hdr_in->src_addr, GET_ID(query->packet), query->qtype, (char *)domain_name_to_string(query->qname, NULL));
+                return 0;
             }
             if(query != NULL && retLen > 0) {
                 init_eth_header(&tmp_eth_hdr, &eth_hdr_in->d_addr, &eth_hdr_in->s_addr, ETHER_TYPE_IPv4);
@@ -259,6 +266,7 @@ int process_slave(__attribute__((unused)) void *arg) {
     kdns_init(lcore_id);
     domain_msg_ring_create(lcore_id);
     view_msg_ring_create(lcore_id);
+    rate_limit_init(lcore_id);
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
     log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
@@ -283,7 +291,7 @@ int process_slave(__attribute__((unused)) void *arg) {
              rte_prefetch0(rte_pktmbuf_mtod(mbufs[t], void *));
         
         for (k = 0; k < rx_count; k++) {
-                packet_l2_handle(mbufs[k],conf);      
+                packet_l2_handle(mbufs[k], conf, lcore_id);
                 if (t < rx_count) {
                     rte_prefetch0(rte_pktmbuf_mtod(mbufs[t], void *));
                     t++;
@@ -294,7 +302,7 @@ int process_slave(__attribute__((unused)) void *arg) {
                int ntx = rte_eth_tx_burst(conf->port_id,conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
                conf->stats.dns_pkts_snd += ntx;
                if (unlikely(ntx != conf->tx_len)){
-                   printf("  rx =%d tx=%d  real tx =%d\n",rx_count,conf->tx_len,ntx);
+                   log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n",rx_count, conf->tx_len, ntx);
                    int i =0;
                    for (i = ntx; i < conf->tx_len; i++)
                        rte_pktmbuf_free(conf->tx_mbufs[i]);

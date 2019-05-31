@@ -7,8 +7,8 @@
 #include "domain_update.h"
 #include "forward.h"
 #include "kdns-adap.h"
-
 #include "parser.h"
+#include "rate_limit.h"
 
 #define DEF_CONFIG_LOG_FILE "/export/log/kdns/kdns.log"
 #define DEF_FWD_ADDRS "8.8.8.8:53,114.114.114.114:53"
@@ -18,6 +18,10 @@
 #define RELOAD_FWD_TIMEOUT          (0x1 << 2)
 #define RELOAD_FWD_DEFAULT_ADDRS    (0x1 << 3)
 #define RELOAD_FWD_ZONES_ADDRS      (0x1 << 4)
+#define RELOAD_ALL_PER_SECOND       (0x1 << 5)
+#define RELOAD_FWD_PER_SECOND       (0x1 << 6)
+#define RELOAD_CLIENT_NUM           (0x1 << 7)
+
 static rte_atomic16_t g_reload_perflag[MAX_CORES] = {RTE_ATOMIC16_INIT(0)};
 static uint16_t g_reload_flag;
 
@@ -182,6 +186,35 @@ static void common_config_init(struct rte_cfgfile *cfgfile, struct comm_config *
     } else {
         cfg->metrics_host = strdup("dns-metrics_host ^^");
     }
+
+    //rate limit config
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "all-per-second");
+    if (entry) {
+        if (parser_read_uint32(&cfg->all_per_second, entry) < 0) {
+            printf("Cannot read COMMON/all-per-second = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->all_per_second = 0;    //disable rate-limit
+    }
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-per-second");
+    if (entry) {
+        if (parser_read_uint32(&cfg->fwd_per_second, entry) < 0) {
+            printf("Cannot read COMMON/fwd-per-second = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->fwd_per_second = 0;    //disable fwd rate-limit
+    }
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "client-num");
+    if (entry) {
+        if (parser_read_uint32(&cfg->client_num, entry) < 0) {
+            printf("Cannot read COMMON/client-num = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->client_num = 16*1024;
+    }
 }
 
 static void netdev_config_init(struct rte_cfgfile *cfgfile, struct netdev_config *cfg) {
@@ -322,6 +355,36 @@ static int common_config_reload_init(struct rte_cfgfile *cfgfile, struct comm_co
         log_msg(LOG_ERR, "Cannot read COMMON/zones.");
         return -1;
     }
+
+    //rate limit config
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "all-per-second");
+    if (entry) {
+        if (parser_read_uint32(&cfg->all_per_second, entry) < 0) {
+            printf("Cannot read COMMON/all-per-second = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->all_per_second = 0;    //disable rate-limit
+    }
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "fwd-per-second");
+    if (entry) {
+        if (parser_read_uint32(&cfg->fwd_per_second, entry) < 0) {
+            printf("Cannot read COMMON/fwd-per-second = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->fwd_per_second = 0;    //disable fwd rate-limit
+    }
+    entry = rte_cfgfile_get_entry(cfgfile, "COMMON", "client-num");
+    if (entry) {
+        if (parser_read_uint32(&cfg->client_num, entry) < 0) {
+            printf("Cannot read COMMON/client-num = %s.\n", entry);
+            exit(-1);
+        }
+    } else {
+        cfg->client_num = 16*1024;
+    }
+
     return 0;
 }
 
@@ -587,6 +650,9 @@ int config_reload_pre_core(unsigned lcore_id) {
         if (reload_flag & (RELOAD_FWD_TIMEOUT | RELOAD_FWD_MODE | RELOAD_FWD_DEFAULT_ADDRS | RELOAD_FWD_ZONES_ADDRS)) {
             fwd_addrs_reload_proc(lcore_id);
         }
+        if (reload_flag & (RELOAD_ALL_PER_SECOND | RELOAD_FWD_PER_SECOND | RELOAD_CLIENT_NUM)) {
+            rate_limit_reload(lcore_id);
+        }
     }
 
     rte_atomic16_clear(&g_reload_perflag[lcore_id]);
@@ -640,6 +706,28 @@ static int config_zones_reload_proc(void) {
     log_msg(LOG_INFO, "reload zones does not change.");
     return 0;
 }
+
+static int config_rate_limit_reload_proc(void) {
+    log_msg(LOG_INFO, "reload rate limit config, old: all_per_second=(%u), fwd_per_second=(%u), client_num=(%u).",
+            g_dns_cfg->comm.all_per_second, g_dns_cfg->comm.fwd_per_second, g_dns_cfg->comm.client_num);
+    log_msg(LOG_INFO, "reload rate limit config, new: all_per_second=(%u), fwd_per_second=(%u), client_num=(%u).",
+            g_reload_dns_cfg->comm.all_per_second, g_reload_dns_cfg->comm.fwd_per_second, g_reload_dns_cfg->comm.client_num);
+
+    if (g_reload_dns_cfg->comm.all_per_second != g_dns_cfg->comm.all_per_second) {
+        g_dns_cfg->comm.all_per_second = g_reload_dns_cfg->comm.all_per_second;
+        g_reload_flag |= RELOAD_ALL_PER_SECOND;
+    }
+    if (g_reload_dns_cfg->comm.fwd_per_second != g_dns_cfg->comm.fwd_per_second) {
+        g_dns_cfg->comm.fwd_per_second = g_reload_dns_cfg->comm.fwd_per_second;
+        g_reload_flag |= RELOAD_FWD_PER_SECOND;
+    }
+    if (g_reload_dns_cfg->comm.client_num != g_dns_cfg->comm.client_num) {
+        g_dns_cfg->comm.client_num = g_reload_dns_cfg->comm.client_num;
+        g_reload_flag |= RELOAD_CLIENT_NUM;
+    }
+    return 0;
+}
+
 
 static void config_reload_free(void) {
     if (!g_reload_dns_cfg) {
@@ -703,6 +791,10 @@ int config_reload_proc(char *dns_cfgfile) {
         goto _out;
 
     ret = config_zones_reload_proc();
+    if (ret)
+        goto _out;
+
+    ret = config_rate_limit_reload_proc();
     if (ret)
         goto _out;
 

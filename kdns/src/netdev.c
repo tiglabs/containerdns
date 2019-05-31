@@ -69,7 +69,7 @@ static struct rte_eth_conf port_conf_rss = {
 	.rx_adv_conf = {
 		.rss_conf = {
 			.rss_key = NULL,
-			.rss_hf =  ETH_RSS_IP |ETH_RSS_UDP,
+			.rss_hf =  ETH_RSS_IP,
 		},
 	},
 	.txmode = {
@@ -113,7 +113,7 @@ static void check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	uint8_t portid, count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
-	log_msg(LOG_INFO,"Checking link status\n");
+	log_msg(LOG_INFO, "Checking link status");
 	fflush(stdout);
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		all_ports_up = 1;
@@ -124,15 +124,12 @@ static void check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 			rte_eth_link_get_nowait(portid, &link);
 			/* print link status if flag set */
 			if (print_flag == 1) {
-				if (link.link_status)
-					log_msg(LOG_INFO,"Port %d Link Up - speed %u "
-						"Mbps - %s\n", (uint8_t)portid,
-						(unsigned)link.link_speed,
-				(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-					("full-duplex") : ("half-duplex\n"));
-				else
-					log_msg(LOG_INFO,"Port %d Link Down\n",
-						(uint8_t)portid);
+				if (link.link_status) {
+                    log_msg(LOG_INFO, "Port %d Link Up - speed %u Mbps - %s\n", (uint8_t)portid, (unsigned)link.link_speed,
+                            (link.link_duplex == ETH_LINK_FULL_DUPLEX) ? ("full-duplex") : ("half-duplex\n"));
+                } else {
+                    log_msg(LOG_INFO, "Port %d Link Down\n", (uint8_t)portid);
+                }
 				continue;
 			}
 			/* clear all_ports_up flag if any link down */
@@ -142,11 +139,12 @@ static void check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 			}
 		}
 		/* after finally printing all link status, get out */
-		if (print_flag == 1)
-			break;
+		if (print_flag == 1) {
+            break;
+        }
 
 		if (all_ports_up == 0) {
-			printf(".");
+            log_msg(LOG_INFO, ".");
 			fflush(stdout);
 			rte_delay_ms(CHECK_INTERVAL);
 		}
@@ -154,7 +152,7 @@ static void check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 		/* set the print_flag if all ports up or timeout */
 		if (all_ports_up == 1 || count == (MAX_CHECK_TIME - 1)) {
 			print_flag = 1;
-			printf("done\n");
+            log_msg(LOG_INFO, "done\n");
 		}
 	}
 }
@@ -456,7 +454,7 @@ void dns_dpdk_init(void){
 }
 
 
- int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) { 
+ int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
 
 #ifdef ENABLE_KDNS_METRICS
      uint64_t start_time = time_now_usec();
@@ -468,7 +466,7 @@ void dns_dpdk_init(void){
 
     switch(ntohs(eth_hdr->ether_type)) {
     case ETHER_TYPE_IPv4:
-        packet_l3_handle(pkt,conf);
+        packet_l3_handle(pkt, conf, lcore_id);
         break;
     case ETHER_TYPE_IPv6:
     default:
