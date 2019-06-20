@@ -1,7 +1,8 @@
 #define _GNU_SOURCE
+
 #include <pthread.h>
 #include <rte_mbuf.h>
-#include <rte_ether.h> 
+#include <rte_ether.h>
 #include <rte_ip.h>
 #include <rte_malloc.h>
 #include <rte_udp.h>
@@ -30,243 +31,108 @@
 #define PREFETCH_OFFSET     (3)
 
 extern struct dns_config *g_dns_cfg;
-extern struct rte_kni     *master_kni;
-extern struct net_device  kdns_net_device;
-static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf);
+extern struct rte_kni *master_kni;
 
-#if 0
-static void print_ip(uint32_t sip, uint32_t dip) {
+static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
+    uint16_t ether_hdr_offset = sizeof(struct ether_hdr);
+    uint16_t ip_hdr_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+    uint16_t udp_hdr_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr);
 
-#define PRINT_IP_FORMAT         "%u.%u.%u.%u"  
-#define  PRINT_HIP(x)\
-       ((x >> 24) & 0xFF),\
-       ((x >> 16) & 0xFF),\
-       ((x >>  8) & 0xFF),\
-       ((x >>  0) & 0xFF)
+    struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr *);
+    struct ipv4_hdr *ipv4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *, ether_hdr_offset);
+    struct udp_hdr *udp_hdr = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr *, ip_hdr_offset);
 
-    char ip_str[64];  
-    sprintf(ip_str, PRINT_IP_FORMAT, PRINT_HIP(ntohl(dip)));  
-    printf("dist ip :%s   ", ip_str);  
-    sprintf(ip_str, PRINT_IP_FORMAT, PRINT_HIP(ntohl(sip)));  
-    printf("src_addr ip :%s \n", ip_str);  
-}
-
+#ifdef ENABLE_KDNS_METRICS
+    uint64_t start_time = time_now_usec();
 #endif
 
-int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
-    
-    struct ether_hdr *eth_hdr_in = NULL;
-    struct ipv4_hdr  *ip_hdr_in = NULL;
-    struct udp_hdr   *udp_hdr_in = NULL; 
-    
-    struct ether_hdr tmp_eth_hdr;
-    struct ipv4_hdr  tmp_ipv4_hdr;
-    struct udp_hdr   tmp_udp_hdr;
-    
-    uint16_t ether_hdr_offset = sizeof(struct ether_hdr);
-    uint16_t ip_hdr_offset    = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
-    uint16_t udp_hdr_offset   = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr);
-   
-
-    kdns_query_st *query;
-    
-    ip_hdr_in = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *, ether_hdr_offset);
-
-    int ip_headlen           = (ip_hdr_in->version_ihl & 0xF)<<2 ;
-    uint16_t ip_total_length = rte_be_to_cpu_16(ip_hdr_in->total_length);
-    
-    //check the pkt
-    if(ip_total_length  < ip_headlen) {
+    conf->stats.pkts_rcv++;
+    if (unlikely(eth_hdr->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4))) {
+        conf->kni_mbufs[conf->kni_len++] = pkt;
+        return 0;
+    }
+    if (unlikely(rate_limit(ipv4_hdr->src_addr, RATE_LIMIT_TYPE_ALL, lcore_id) != 0)) {
+        conf->stats.pkt_dropped++;
+        rte_pktmbuf_free(pkt);
+        return 0;
+    }
+    uint16_t ip_hdr_len = (ipv4_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
+    uint16_t ip_total_length = rte_be_to_cpu_16(ipv4_hdr->total_length);
+    if (unlikely(ip_hdr_len != sizeof(struct ipv4_hdr) || pkt->pkt_len != (sizeof(struct ether_hdr) + ip_total_length))) {
+        log_msg(LOG_ERR, "illegal pkt: pkt_len(%d), ip_hdr_len(%d), ip_total_length(%d)\n", pkt->pkt_len, ip_hdr_len, ip_total_length);
         conf->stats.pkt_len_err++;
-        log_msg(LOG_ERR, "ip_total_length err: ip_total_length(%d), ip_headlen(%d)\n", ip_total_length, ip_headlen);
-        goto cleanup; 
+        conf->stats.pkt_dropped++;
+        rte_pktmbuf_free(pkt);
+        return 0;
+    }
+    if (unlikely(ipv4_hdr->next_proto_id != IPPROTO_UDP || udp_hdr->dst_port != UDP_PORT_53)) {
+        conf->kni_mbufs[conf->kni_len++] = pkt;
+        return 0;
     }
 
-    if(pkt->pkt_len < ip_total_length + ether_hdr_offset) {
+    conf->stats.dns_pkts_rcv++;
+    conf->stats.dns_lens_rcv += pkt->pkt_len;
+
+    uint16_t udp_dgram_len = rte_be_to_cpu_16(udp_hdr->dgram_len);
+    int query_len = udp_dgram_len - sizeof(struct udp_hdr);
+    if (unlikely((ip_total_length != (sizeof(struct ipv4_hdr) + udp_dgram_len) || query_len < DNS_HEAD_SIZE))) {
+        log_msg(LOG_ERR, "illegal pkt: ip_total_length(%d), udp_dgram_len(%d), query_len(%d)\n", ip_total_length, udp_dgram_len, query_len);
         conf->stats.pkt_len_err++;
-        log_msg(LOG_ERR, "pkt_len err: pkt->pkt_len(%d) < ip_total_length(%d) + ether_hdr(%d)\n", pkt->pkt_len, ip_total_length, ether_hdr_offset);
-        goto cleanup;
+        conf->stats.pkt_dropped++;
+        rte_pktmbuf_free(pkt);
+        return 0;
     }
 
-    if (rate_limit(ip_hdr_in->src_addr, RATE_LIMIT_TYPE_ALL, lcore_id) != 0) {
-        goto cleanup;
-    }
+    uint8_t *query_data = rte_pktmbuf_mtod_offset(pkt, uint8_t *, udp_hdr_offset);
+    uint16_t old_flag = *(((uint16_t *)query_data) + 1);
 
-    switch(ip_hdr_in->next_proto_id) {
-    case IPPROTO_UDP:
-        eth_hdr_in = rte_pktmbuf_mtod(pkt, struct ether_hdr*);
-        udp_hdr_in = rte_pktmbuf_mtod_offset(pkt, struct udp_hdr*, ip_hdr_offset);
-        if(ip_total_length != ip_headlen + ntohs(udp_hdr_in->dgram_len)) {
-            conf->stats.pkt_len_err++;
-            log_msg(LOG_ERR, "udp_hdr_in->dgram_len err: ip_total_length (%d) != ip_headlen(%d)+ dgram_len(%d)\n",ip_total_length , ip_headlen,ntohs(udp_hdr_in->dgram_len));
-            goto cleanup;
-        }
-        
-        if(udp_hdr_in->dst_port == UDP_PORT_53) { // port 53
-
-            conf->stats.dns_pkts_rcv++;
-           // printf("rvc len =%d\n",pkt->pkt_len);
-            conf->stats.dns_lens_rcv += pkt->pkt_len;
-            int received = rte_be_to_cpu_16(udp_hdr_in->dgram_len) - sizeof(struct udp_hdr);
-
-            uint16_t flags_old ;
-            uint8_t *bufdata = rte_pktmbuf_mtod_offset(pkt, uint8_t *, udp_hdr_offset);
-            memcpy(&flags_old,bufdata+2 , 2);
-              
-            query = dns_packet_proess(ip_hdr_in->src_addr, bufdata, received, lcore_id);
-            int retLen = buffer_remaining(query->packet);
-
-            if (GET_RCODE(query->packet) == RCODE_REFUSE) {
-                if (rate_limit(ip_hdr_in->src_addr, RATE_LIMIT_TYPE_FWD, lcore_id) != 0) {
-                    goto cleanup;
-                }
-
-                memcpy(bufdata + 2, &flags_old, 2);
-                fwd_query_enqueue(pkt, ip_hdr_in->src_addr, GET_ID(query->packet), query->qtype, (char *)domain_name_to_string(query->qname, NULL));
-                return 0;
-            }
-            if(query != NULL && retLen > 0) {
-                init_eth_header(&tmp_eth_hdr, &eth_hdr_in->d_addr, &eth_hdr_in->s_addr, ETHER_TYPE_IPv4);
-                init_ipv4_header(&tmp_ipv4_hdr, ip_hdr_in->dst_addr, ip_hdr_in->src_addr, sizeof(struct udp_hdr) + retLen);
-                init_udp_header(&tmp_udp_hdr, udp_hdr_in->dst_port, udp_hdr_in->src_port, retLen);
-
-                memcpy(eth_hdr_in,&tmp_eth_hdr, sizeof(struct ether_hdr));
-                memcpy(ip_hdr_in,&tmp_ipv4_hdr, sizeof(struct ipv4_hdr));
-                memcpy(udp_hdr_in,&tmp_udp_hdr, sizeof(struct udp_hdr));
-                pkt->pkt_len = retLen + udp_hdr_offset;
-                pkt->data_len = pkt->pkt_len;
-                pkt->l2_len = sizeof(struct ether_hdr);
-                pkt->vlan_tci  = ETHER_TYPE_IPv4;
-                pkt->l3_len = sizeof(struct ipv4_hdr);  
-                
-                conf->tx_mbufs[conf->tx_len++] = pkt;
-                conf->stats.dns_lens_snd += pkt->pkt_len;
-               // printf("snd len =%d\n",pkt->pkt_len);
-            }
-            
-        }else{
+    kdns_query_st *query = dns_packet_proess(ipv4_hdr->src_addr, query_data, query_len, lcore_id);
+    if (unlikely(GET_RCODE(query->packet) == RCODE_REFUSE)) {
+        if (unlikely(rate_limit(ipv4_hdr->src_addr, RATE_LIMIT_TYPE_FWD, lcore_id) != 0)) {
             conf->stats.pkt_dropped++;
-             rte_pktmbuf_free(pkt);     
+            rte_pktmbuf_free(pkt);
+            return 0;
         }
-        return 0;
-    case IPPROTO_ICMP:
-        packet_icmp_handle(pkt,conf);
-        conf->tx_mbufs[conf->tx_len++] = pkt;
-        return 0;
-    default:
-        conf->kni_mbufs[conf->kni_len++]= pkt;
-        return 0;
 
+        *(((uint16_t *)query_data) + 1) = old_flag;
+        fwd_query_enqueue(pkt, ipv4_hdr->src_addr, GET_ID(query->packet), query->qtype, (char *)domain_name_to_string(query->qname, NULL));
+        return 0;
     }
-cleanup:
-    conf->stats.pkt_dropped++;
-    rte_pktmbuf_free(pkt);
+
+    int ret_len = buffer_remaining(query->packet);
+    if (likely(ret_len > 0)) {
+        init_dns_packet_header(eth_hdr, ipv4_hdr, udp_hdr, ret_len);
+        pkt->pkt_len = ret_len + udp_hdr_offset;
+        pkt->data_len = pkt->pkt_len;
+        pkt->l2_len = sizeof(struct ether_hdr);
+        pkt->vlan_tci = ETHER_TYPE_IPv4;
+        pkt->l3_len = sizeof(struct ipv4_hdr);
+
+        conf->tx_mbufs[conf->tx_len++] = pkt;
+        conf->stats.dns_lens_snd += pkt->pkt_len;
+    } else {
+        log_msg(LOG_ERR, "failed deal dns packet, ret %d\n", ret_len);
+        conf->stats.pkt_dropped++;
+        rte_pktmbuf_free(pkt);
+        return 0;
+    }
+
+#ifdef ENABLE_KDNS_METRICS
+    metrics_data_update(&conf->stats.metrics, time_now_usec() - start_time);
+#endif
     return 0;
-}
-
-#define is_multicast_ipv4_addr(ipv4_addr) \
-	(((rte_be_to_cpu_32((ipv4_addr)) >> 24) & 0x000000FF) == 0xE0)
-
-
-static uint16_t
-ipv4_hdr_cksum(struct ipv4_hdr *ip_h)
-{
-	uint16_t *v16_h;
-	uint32_t ip_cksum;
-
-	/*
-	 * Compute the sum of successive 16-bit words of the IPv4 header,
-	 * skipping the checksum field of the header.
-	 */
-	v16_h = (unaligned_uint16_t *) ip_h;
-	ip_cksum = v16_h[0] + v16_h[1] + v16_h[2] + v16_h[3] +
-		v16_h[4] + v16_h[6] + v16_h[7] + v16_h[8] + v16_h[9];
-
-	/* reduce 32 bit checksum to 16 bits and complement it */
-	ip_cksum = (ip_cksum & 0xffff) + (ip_cksum >> 16);
-	ip_cksum = (ip_cksum & 0xffff) + (ip_cksum >> 16);
-	ip_cksum = (~ip_cksum) & 0x0000FFFF;
-	return (ip_cksum == 0) ? 0xFFFF : (uint16_t) ip_cksum;
-}
-
-
-static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf) {
-
-	struct ether_hdr *eth_h;
-    struct arp_hdr  *arp_h;
-    struct ipv4_hdr *ip_h;
-    struct icmp_hdr *icmp_h;
-    struct ether_addr eth_addr;
-    uint32_t ip_addr;
-    uint32_t cksum;
-    conf->stats.pkts_icmp ++;
-    
-    eth_h = rte_pktmbuf_mtod(pkt, struct ether_hdr *);
-    uint16_t eth_type = rte_be_to_cpu_16(eth_h->ether_type);
-    /* Reply to ARP requests   // no use*/
-	if (eth_type == ETHER_TYPE_ARP){
-
-        arp_h = (struct arp_hdr *) ((char *)eth_h + sizeof(struct ether_hdr));
-
-    	/* Use source MAC address as destination MAC address. */
-    	ether_addr_copy(&eth_h->s_addr, &eth_h->d_addr);
-    	/* Set source MAC address with MAC address of TX port */
-    	ether_addr_copy(&kdns_net_device.hwaddr,&eth_h->s_addr);
-
-    	arp_h->arp_op = rte_cpu_to_be_16(ARP_OP_REPLY);
-
-        ether_addr_copy(&arp_h->arp_data.arp_tha, &eth_addr);
-    	ether_addr_copy(&arp_h->arp_data.arp_sha, &arp_h->arp_data.arp_tha);
-    	ether_addr_copy(&eth_h->s_addr, &arp_h->arp_data.arp_sha);
-
-    	/* Swap IP addresses in ARP payload */
-    	ip_addr = arp_h->arp_data.arp_sip;
-    	arp_h->arp_data.arp_sip = arp_h->arp_data.arp_tip;
-    	arp_h->arp_data.arp_tip = ip_addr;
-        return ;
-   }
-
-    ip_h = (struct ipv4_hdr *) ((char *)eth_h + sizeof(struct ether_hdr));
-    icmp_h = (struct icmp_hdr *) ((char *)ip_h + sizeof(struct ipv4_hdr));
-
-	ether_addr_copy(&eth_h->s_addr, &eth_addr);
-	ether_addr_copy(&eth_h->d_addr, &eth_h->s_addr);
-	ether_addr_copy(&eth_addr, &eth_h->d_addr);
-	ip_addr = ip_h->src_addr;
-	if (is_multicast_ipv4_addr(ip_h->dst_addr)) {
-		uint32_t ip_src;
-
-		ip_src = rte_be_to_cpu_32(ip_addr);
-		if ((ip_src & 0x00000003) == 1)
-			ip_src = (ip_src & 0xFFFFFFFC) | 0x00000002;
-		else
-			ip_src = (ip_src & 0xFFFFFFFC) | 0x00000001;
-		ip_h->src_addr = rte_cpu_to_be_32(ip_src);
-		ip_h->dst_addr = ip_addr;
-		ip_h->hdr_checksum = ipv4_hdr_cksum(ip_h);
-	} else {
-		ip_h->src_addr = ip_h->dst_addr;
-		ip_h->dst_addr = ip_addr;
-	}
-	icmp_h->icmp_type = IP_ICMP_ECHO_REPLY;
-	cksum = ~icmp_h->icmp_cksum & 0xffff;
-	cksum += ~htons(IP_ICMP_ECHO_REQUEST << 8) & 0xffff;
-	cksum += htons(IP_ICMP_ECHO_REPLY << 8);
-	cksum = (cksum & 0xffff) + (cksum >> 16);
-	cksum = (cksum & 0xffff) + (cksum >> 16);
-	icmp_h->icmp_cksum = ~cksum;   
 }
 
 int process_slave(__attribute__((unused)) void *arg) {
     int i;
+    uint16_t rx_count;
     uint64_t now_tsc, prev_tsc, intvl_tsc;
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
-    uint16_t rx_count;
     unsigned lcore_id = rte_lcore_id();
 
     now_tsc = rte_rdtsc();
     prev_tsc = now_tsc;
-    intvl_tsc = rte_get_timer_hz()/1000;  //1ms
+    intvl_tsc = rte_get_timer_hz() / 1000;  //1ms
 
     kdns_init(lcore_id);
     domain_msg_ring_create(lcore_id);
@@ -275,7 +141,7 @@ int process_slave(__attribute__((unused)) void *arg) {
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
     log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
-    while (1){
+    while (1) {
         now_tsc = rte_rdtsc();
         if (now_tsc - prev_tsc > intvl_tsc) {
             prev_tsc = now_tsc;
@@ -286,7 +152,7 @@ int process_slave(__attribute__((unused)) void *arg) {
 
         rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
         if (unlikely(rx_count == 0)) {
-           continue;
+            continue;
         }
 
         conf->tx_len = 0;
@@ -300,37 +166,37 @@ int process_slave(__attribute__((unused)) void *arg) {
         /* Prefetch and Deal already prefetched packets. */
         for (i = 0; i < (rx_count - PREFETCH_OFFSET); i++) {
             rte_prefetch0(rte_pktmbuf_mtod(mbufs[i + PREFETCH_OFFSET], void *));
-            packet_l2_handle(mbufs[i], conf, lcore_id);
+            packet_process(mbufs[i], conf, lcore_id);
         }
 
         /* Deal remaining prefetched packets */
         for (; i < rx_count; i++) {
-            packet_l2_handle(mbufs[i], conf, lcore_id);
+            packet_process(mbufs[i], conf, lcore_id);
         }
 
         // send the pkts
-        if (likely(conf->tx_len >0)){
-               int ntx = rte_eth_tx_burst(conf->port_id,conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
-               conf->stats.dns_pkts_snd += ntx;
-               if (unlikely(ntx != conf->tx_len)){
-                   log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n",rx_count, conf->tx_len, ntx);
-                   int i =0;
-                   for (i = ntx; i < conf->tx_len; i++)
-                       rte_pktmbuf_free(conf->tx_mbufs[i]);
-                   conf->stats.pkt_dropped += ntx;
-               }
+        if (likely(conf->tx_len > 0)) {
+            int ntx = rte_eth_tx_burst(conf->port_id, conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
+            conf->stats.dns_pkts_snd += ntx;
+            if (unlikely(ntx != conf->tx_len)) {
+                log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n", rx_count, conf->tx_len, ntx);
+                int i = 0;
+                for (i = ntx; i < conf->tx_len; i++) {
+                    rte_pktmbuf_free(conf->tx_mbufs[i]);
+                }
+                conf->stats.pkt_dropped += ntx;
+            }
         }
         // snd to master
-        if (unlikely(conf->kni_len > 0)){
-            dns_kni_enqueue(conf,conf->kni_mbufs,conf->kni_len);
-        }       
+        if (unlikely(conf->kni_len > 0)) {
+            dns_kni_enqueue(conf, conf->kni_mbufs, conf->kni_len);
+        }
     }
     return 0;
 }
 
 //set master's affinity to master core
-static int reset_master_affinity(void)
-{
+static int reset_master_affinity(void) {
     int s;
     pthread_t tid;
     cpu_set_t cpuset;
@@ -366,23 +232,24 @@ void process_master(__attribute__((unused)) void *arg) {
 
     reset_master_affinity();
     log_msg(LOG_INFO, "Starting master core %u\n", lcore_id);
-    while(1) {
+    while (1) {
         struct rte_mbuf *pkts_kni_rx[NETIF_MAX_PKT_BURST];
         unsigned pkt_num;
 
         config_reload_pre_core(lcore_id);
         view_msg_master_process();
         domain_msg_master_process();
-        uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx,NETIF_MAX_PKT_BURST);
-        if (rx_count == 0){
-            rte_kni_tx_burst(master_kni,NULL , 0); 
-           // rte_delay_ms(30);
-        }else{
-            pkt_num = rte_kni_tx_burst(master_kni, pkts_kni_rx, rx_count);          
+        uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx, NETIF_MAX_PKT_BURST);
+        if (rx_count == 0) {
+            rte_kni_tx_burst(master_kni, NULL, 0);
+            // rte_delay_ms(30);
+        } else {
+            pkt_num = rte_kni_tx_burst(master_kni, pkts_kni_rx, rx_count);
             if (unlikely(pkt_num < rx_count)) {
-                int i =0;
-                for(i = pkt_num; i < rx_count; i ++  )
+                int i = 0;
+                for (i = pkt_num; i < rx_count; i++) {
                     rte_pktmbuf_free(pkts_kni_rx[i]);
+                }
             }
         }
 
@@ -391,29 +258,31 @@ void process_master(__attribute__((unused)) void *arg) {
 
         struct rte_mbuf *kni_pkts_tx[NETIF_MAX_PKT_BURST];
         unsigned npkts = rte_kni_rx_burst(master_kni, kni_pkts_tx, NETIF_MAX_PKT_BURST);
-        if(npkts > 0) {
+        if (npkts > 0) {
             uint16_t nb_tx = rte_eth_tx_burst(0, 0, kni_pkts_tx, (uint16_t)npkts);
-            if(nb_tx < npkts){
-                uint16_t i =0;
-                for(i = nb_tx; i < npkts; i++  )
+            if (unlikely(nb_tx < npkts)) {
+                uint16_t i = 0;
+                for (i = nb_tx; i < npkts; i++) {
                     rte_pktmbuf_free(kni_pkts_tx[i]);
-           }
-        }   
+                }
+            }
+        }
 
         //fwd
         struct rte_mbuf *fwd_pkts_tx[NETIF_MAX_PKT_BURST];
         unsigned fwd_count = fwd_response_dequeue(fwd_pkts_tx, NETIF_MAX_PKT_BURST);
-        if (fwd_count != 0){
+        if (fwd_count != 0) {
             uint16_t nb_tx = rte_eth_tx_burst(0, 0, fwd_pkts_tx, (uint16_t)fwd_count);
-            if(nb_tx < fwd_count){
-                uint16_t i =0;
-                for(i = nb_tx; i < fwd_count; i++)
+            if (unlikely(nb_tx < fwd_count)) {
+                uint16_t i = 0;
+                for (i = nb_tx; i < fwd_count; i++) {
                     rte_pktmbuf_free(fwd_pkts_tx[i]);
-           }
+                }
+            }
         }
     }
-    
-    return ;
+
+    return;
 }
 
 

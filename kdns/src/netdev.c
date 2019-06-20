@@ -453,34 +453,6 @@ void dns_dpdk_init(void){
 
 }
 
-
- int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
-
-#ifdef ENABLE_KDNS_METRICS
-     uint64_t start_time = time_now_usec();
-#endif
-
-    struct ether_hdr *eth_hdr = NULL;
-    conf->stats.pkts_rcv++;
-    eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr *); 
-
-    switch(ntohs(eth_hdr->ether_type)) {
-    case ETHER_TYPE_IPv4:
-        packet_l3_handle(pkt, conf, lcore_id);
-        break;
-    case ETHER_TYPE_IPv6:
-    default:
-        conf->kni_mbufs[conf->kni_len++]= pkt;
-        break;
-    }
-
-#ifdef ENABLE_KDNS_METRICS
-     metrics_data_update( &conf->stats.metrics,  time_now_usec() - start_time);
-#endif
-    return 0;
- }
-    
-    
  static void netif_queue_conf_init(uint16_t lcore_id, uint16_t port_id,uint16_t rx_queue_id,uint16_t tx_queue_id)
  {
      log_msg(LOG_INFO,"core queue info: coreId(%d) portID(%d) rxQueueId(%d) txQueueId(%d)\n",
@@ -572,68 +544,48 @@ void netif_statsdata_metrics_reset(void){
     return;
 }
 
+void init_dns_packet_header(struct ether_hdr *eth_hdr, struct ipv4_hdr *ipv4_hdr, struct udp_hdr *udp_hdr, uint16_t data_len) {
+    uint16_t udp_data_len = sizeof(struct udp_hdr) + data_len;
+    uint16_t ipv4_data_len = sizeof(struct ipv4_hdr) + udp_data_len;
+    /*
+     * Initialize ETHER header.
+     */
+    struct ether_addr tmp_mac;
+    ether_addr_copy(&eth_hdr->d_addr, &tmp_mac);
+    ether_addr_copy(&eth_hdr->s_addr, &eth_hdr->d_addr);
+    ether_addr_copy(&tmp_mac, &eth_hdr->s_addr);
+    eth_hdr->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
 
-void init_eth_header(struct ether_hdr *eth_hdr, struct ether_addr *src_mac, \
-    struct ether_addr *dst_mac, uint16_t ether_type)
-{
-    ether_addr_copy(dst_mac, &eth_hdr->d_addr);
-    ether_addr_copy(src_mac, &eth_hdr->s_addr);
+    /*
+     * Initialize IP header.
+     */
+    uint32_t src_addr = ipv4_hdr->src_addr;
+    uint32_t dst_addr = ipv4_hdr->dst_addr;
 
-    eth_hdr->ether_type = rte_cpu_to_be_16(ether_type);
+    ipv4_hdr->version_ihl = IP_VHL_DEF;
+    ipv4_hdr->type_of_service = 0;
+    ipv4_hdr->fragment_offset = 0;
+    ipv4_hdr->time_to_live = IP_DEFTTL;
+    ipv4_hdr->next_proto_id = IPPROTO_UDP;
+    ipv4_hdr->packet_id = 0;
+    ipv4_hdr->total_length = rte_cpu_to_be_16(ipv4_data_len);
+    ipv4_hdr->src_addr = dst_addr;
+    ipv4_hdr->dst_addr = src_addr;
+
+    /*
+     * Compute IP header checksum.
+     */
+    ipv4_hdr->hdr_checksum = 0;
+    ipv4_hdr->hdr_checksum = rte_ipv4_cksum(ipv4_hdr);
+
+    /*
+     * Initialize UDP header.
+     */
+    uint16_t src_port = udp_hdr->src_port;
+    uint16_t dst_port = udp_hdr->dst_port;
+
+    udp_hdr->src_port = dst_port;
+    udp_hdr->dst_port = src_port;
+    udp_hdr->dgram_len = rte_cpu_to_be_16(udp_data_len);
+    udp_hdr->dgram_cksum = 0;   /* No UDP checksum. */
 }
-
-uint16_t init_ipv4_header(struct ipv4_hdr *ip_hdr, uint32_t src_addr,
-    uint32_t dst_addr, uint16_t pktdata_len)
-{
-    uint16_t pkt_len;
-    unaligned_uint16_t *ptr16;
-    uint32_t ip_cksum;
-
-    pkt_len = (uint16_t) (pktdata_len + sizeof(struct ipv4_hdr));
-
-    ip_hdr->version_ihl   = IP_VHL_DEF;
-    ip_hdr->type_of_service   = 0;
-    ip_hdr->fragment_offset = 0;
-    ip_hdr->time_to_live   = IP_DEFTTL;
-    ip_hdr->next_proto_id = IPPROTO_UDP;
-    ip_hdr->packet_id = 0;
-    ip_hdr->total_length   = rte_cpu_to_be_16(pkt_len);
-    ip_hdr->src_addr = src_addr;
-    ip_hdr->dst_addr = dst_addr;
-
-    ptr16 = (unaligned_uint16_t *)ip_hdr;
-    ip_cksum = 0;
-    ip_cksum += ptr16[0]; ip_cksum += ptr16[1];
-    ip_cksum += ptr16[2]; ip_cksum += ptr16[3];
-    ip_cksum += ptr16[4];
-    ip_cksum += ptr16[6]; ip_cksum += ptr16[7];
-    ip_cksum += ptr16[8]; ip_cksum += ptr16[9];
-
-
-    ip_cksum = ((ip_cksum & 0xFFFF0000) >> 16) +
-        (ip_cksum & 0x0000FFFF);
-    ip_cksum %= 65536;
-    ip_cksum = (~ip_cksum) & 0x0000FFFF;
-    if (ip_cksum == 0)
-        ip_cksum = 0xFFFF;
-    ip_hdr->hdr_checksum = (uint16_t) ip_cksum;
-
-    return pkt_len;
-}
-
-
-uint16_t init_udp_header(struct udp_hdr *udp_hdr, uint16_t src_port,
-    uint16_t dst_port, uint16_t pktdata_len)
-{
-    uint16_t pkt_len;
-
-    pkt_len = (uint16_t) (pktdata_len + sizeof(struct udp_hdr));
-
-    udp_hdr->src_port = src_port;
-    udp_hdr->dst_port = dst_port;
-    udp_hdr->dgram_len = rte_cpu_to_be_16(pkt_len);
-    udp_hdr->dgram_cksum = 0; 
-
-    return pkt_len;
-}
-

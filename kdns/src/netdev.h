@@ -79,19 +79,10 @@ void netif_statsdata_get(struct netif_queue_stats *sta);
 void netif_statsdata_reset(void);
 void netif_statsdata_metrics_reset(void);
 
-
-
-int packet_l2_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id);
-
 void netif_queue_core_bind(void);
 
 struct netif_queue_conf* netif_queue_conf_get(uint16_t lcore_id);
-void init_eth_header(struct ether_hdr *eth_hdr, struct ether_addr *src_mac, \
-    struct ether_addr *dst_mac, uint16_t ether_type);
-uint16_t init_ipv4_header(struct ipv4_hdr *ip_hdr, uint32_t src_addr,
-    uint32_t dst_addr, uint16_t pktdata_len);
-uint16_t init_udp_header(struct udp_hdr *udp_hdr, uint16_t src_port,
-    uint16_t dst_port, uint16_t pktdata_len);
+void init_dns_packet_header(struct ether_hdr *eth_hdr, struct ipv4_hdr *ipv4_hdr, struct udp_hdr *udp_hdr, uint16_t data_len);
 
 int kni_free_kni(uint8_t port_id);
 
