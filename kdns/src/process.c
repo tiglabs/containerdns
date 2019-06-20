@@ -137,8 +137,7 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsign
                 pkt->vlan_tci  = ETHER_TYPE_IPv4;
                 pkt->l3_len = sizeof(struct ipv4_hdr);  
                 
-                conf->tx_mbufs[conf->tx_len] = pkt;
-                conf->tx_len++;
+                conf->tx_mbufs[conf->tx_len++] = pkt;
                 conf->stats.dns_lens_snd += pkt->pkt_len;
                // printf("snd len =%d\n",pkt->pkt_len);
             }
@@ -150,12 +149,10 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsign
         return 0;
     case IPPROTO_ICMP:
         packet_icmp_handle(pkt,conf);
-        conf->tx_mbufs[conf->tx_len] = pkt;
-        conf->tx_len++;
+        conf->tx_mbufs[conf->tx_len++] = pkt;
         return 0;
     default:
-        conf->kni_mbufs[conf->kni_len]= pkt;
-        conf->kni_len ++;
+        conf->kni_mbufs[conf->kni_len++]= pkt;
         return 0;
 
     }
@@ -282,9 +279,8 @@ int process_slave(__attribute__((unused)) void *arg) {
         if (unlikely(rx_count == 0)) {
            continue;
         } 
-        conf->tx_len = conf->kni_len =0;
-        memset(conf->tx_mbufs,0,sizeof(conf->tx_mbufs));
-        memset(conf->kni_mbufs,0,sizeof(conf->kni_mbufs));
+        conf->tx_len = 0;
+        conf->kni_len = 0;
 
         /* prefetch packets */
         for (t = 0; t < rx_count && t < 3; t++)

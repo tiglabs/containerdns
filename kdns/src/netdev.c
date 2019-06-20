@@ -470,8 +470,7 @@ void dns_dpdk_init(void){
         break;
     case ETHER_TYPE_IPv6:
     default:
-        conf->kni_mbufs[conf->kni_len]= pkt;
-        conf->kni_len ++;
+        conf->kni_mbufs[conf->kni_len++]= pkt;
         break;
     }
 
