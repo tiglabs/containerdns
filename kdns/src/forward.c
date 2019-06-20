@@ -131,7 +131,7 @@ static rte_atomic64_t dns_fwd_lost;     /* Total number of lost response forward
 
 static void fwd_cache_update(fwd_qnode *qnode, char *cache_data, int cache_data_len);
 
-static void fwd_cache_del(fwd_qnode *qnode);
+static void fwd_cache_del(fwd_qnode *qnode) __attribute__((unused));
 
 static int fwd_cache_lookup(fwd_qnode *qnode, char *cache_data, int *cache_data_len);
 

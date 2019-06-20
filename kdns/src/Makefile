@@ -48,11 +48,11 @@ endif
 
 CFLAGS += $(INCLUDE)
 
-CFLAGS += $(WERROR_FLAGS) -g -lrt -lpthread -Wno-cast-qual -Wno-unused-function -Wno-deprecated-declarations
+CFLAGS += $(WERROR_FLAGS) -g -O2 -Wno-cast-qual
 
 CFLAGS += -I$(SRCDIR)/../core/$(RTE_TARGET)/include
 
-LDLIBS += -L$(SRCDIR)/../core/$(RTE_TARGET)/lib/ -lkdns
+LDLIBS += -L$(SRCDIR)/../core/$(RTE_TARGET)/lib/ -lkdns -lrt -lpthread
 
 LDLIBS += $(STATIC_LIBS)
 include $(RTE_SDK)/mk/rte.extapp.mk
