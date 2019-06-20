@@ -27,6 +27,8 @@
 #include "dns-conf.h"
 #include "rate_limit.h"
 
+#define PREFETCH_OFFSET     (3)
+
 extern struct dns_config *g_dns_cfg;
 extern struct rte_kni     *master_kni;
 extern struct net_device  kdns_net_device;
@@ -108,10 +110,10 @@ int packet_l3_handle(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsign
             int received = rte_be_to_cpu_16(udp_hdr_in->dgram_len) - sizeof(struct udp_hdr);
 
             uint16_t flags_old ;
-            char * bufdata = rte_pktmbuf_mtod_offset(pkt, char*, udp_hdr_offset);
+            uint8_t *bufdata = rte_pktmbuf_mtod_offset(pkt, uint8_t *, udp_hdr_offset);
             memcpy(&flags_old,bufdata+2 , 2);
               
-            query = dns_packet_proess(pkt, ip_hdr_in->src_addr,udp_hdr_offset, received);
+            query = dns_packet_proess(ip_hdr_in->src_addr, bufdata, received, lcore_id);
             int retLen = buffer_remaining(query->packet);
 
             if (GET_RCODE(query->packet) == RCODE_REFUSE) {
@@ -255,10 +257,16 @@ static void packet_icmp_handle(struct rte_mbuf *pkt, struct netif_queue_conf *co
 	icmp_h->icmp_cksum = ~cksum;   
 }
 
-
 int process_slave(__attribute__((unused)) void *arg) {
-    int t,k;
+    int i;
+    uint64_t now_tsc, prev_tsc, intvl_tsc;
+    struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
+    uint16_t rx_count;
     unsigned lcore_id = rte_lcore_id();
+
+    now_tsc = rte_rdtsc();
+    prev_tsc = now_tsc;
+    intvl_tsc = rte_get_timer_hz()/1000;  //1ms
 
     kdns_init(lcore_id);
     domain_msg_ring_create(lcore_id);
@@ -268,31 +276,38 @@ int process_slave(__attribute__((unused)) void *arg) {
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
     log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1){
-        config_reload_pre_core(lcore_id);
-        view_msg_slave_process();
-        domain_msg_slave_process();
-        struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST] ={0};
-        uint16_t rx_count;
-    
-        rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
+        now_tsc = rte_rdtsc();
+        if (now_tsc - prev_tsc > intvl_tsc) {
+            prev_tsc = now_tsc;
+            config_reload_pre_core(lcore_id);
+            view_msg_slave_process();
+            domain_msg_slave_process();
+        }
 
+        rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
         if (unlikely(rx_count == 0)) {
            continue;
-        } 
+        }
+
         conf->tx_len = 0;
         conf->kni_len = 0;
 
-        /* prefetch packets */
-        for (t = 0; t < rx_count && t < 3; t++)
-             rte_prefetch0(rte_pktmbuf_mtod(mbufs[t], void *));
-        
-        for (k = 0; k < rx_count; k++) {
-                packet_l2_handle(mbufs[k], conf, lcore_id);
-                if (t < rx_count) {
-                    rte_prefetch0(rte_pktmbuf_mtod(mbufs[t], void *));
-                    t++;
-                } 
+        /* Prefetch PREFETCH_OFFSET packets */
+        for (i = 0; i < PREFETCH_OFFSET && i < rx_count; i++) {
+            rte_prefetch0(rte_pktmbuf_mtod(mbufs[i], void *));
         }
+
+        /* Prefetch and Deal already prefetched packets. */
+        for (i = 0; i < (rx_count - PREFETCH_OFFSET); i++) {
+            rte_prefetch0(rte_pktmbuf_mtod(mbufs[i + PREFETCH_OFFSET], void *));
+            packet_l2_handle(mbufs[i], conf, lcore_id);
+        }
+
+        /* Deal remaining prefetched packets */
+        for (; i < rx_count; i++) {
+            packet_l2_handle(mbufs[i], conf, lcore_id);
+        }
+
         // send the pkts
         if (likely(conf->tx_len >0)){
                int ntx = rte_eth_tx_burst(conf->port_id,conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);

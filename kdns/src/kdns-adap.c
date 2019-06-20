@@ -108,21 +108,13 @@ int kdns_init(unsigned lcore_id) {
     return kdns_prepare_init(&dpdk_dns[lcore_id], &queries[lcore_id]);
 }
 
-kdns_query_st * dns_packet_proess(struct rte_mbuf *pkt , uint32_t sip,int offset, int received) {
-    unsigned lcore_id = rte_lcore_id();
-    char *rdata = NULL;
-
+kdns_query_st *dns_packet_proess(uint32_t sip, uint8_t *query_data, int query_len, unsigned lcore_id) {
     kdns_query_st *query = queries[lcore_id];
-
-    if(received < 0) {
-        return NULL;
-    }
 
     query_reset(query);
 
-    rdata = rte_pktmbuf_mtod_offset(pkt, char *, offset);
-    query->packet->data = (uint8_t *)rdata;
-    query->packet->position += received;
+    query->packet->data = query_data;
+    query->packet->position += query_len;
     query->sip = sip;
     view_value_t* data = view_find(dpdk_dns[lcore_id].db->viewtree, (uint8_t *)&sip,32);
     if (data != VIEW_NO_NODE){
