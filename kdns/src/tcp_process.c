@@ -231,7 +231,9 @@ static void *thread_tcp_process(void *arg) {
              *   + Query class        (2)
              *   + Query type         (2)
              */
-            uint16_t tcp_query_len = ntohs(*(uint16_t *)buf);
+            uint16_t tcp_query_len = 0;
+            memcpy(&tcp_query_len, buf, 2);
+            tcp_query_len = ntohs(tcp_query_len);
             if (tcp_query_len < DNS_HEAD_SIZE + 1 + sizeof(uint16_t) + sizeof(uint16_t)) {
                 log_msg(LOG_ERR, "tcp query from %s packet size %d illegal, drop\n", inet_ntoa(caddr.sin_addr), tcp_query_len);
                 close(cfd);

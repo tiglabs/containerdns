@@ -76,10 +76,16 @@ query_format_error (struct query *query)
 kdns_query_st *
 query_create(void)
 {
-	kdns_query_st *query = (kdns_query_st *) xalloc_zero( sizeof(kdns_query_st));
-	query->packet = buffer_create( QIOBUFSZ);
-    query->qname =(domain_name_st *) xalloc_zero(sizeof(domain_name_st)+ MAXDOMAINLEN * 2);
-	return query;
+    kdns_query_st *query = (kdns_query_st *)xalloc_zero(sizeof(kdns_query_st));
+    if (query) {
+        query->packet = buffer_create(QIOBUFSZ);
+        query->qname = (domain_name_st *)xalloc_zero(sizeof(domain_name_st) + MAXDOMAINLEN * 2);
+        if (query->packet == NULL || query->qname == NULL) {
+            free(query);
+            return NULL;
+        }
+    }
+    return query;
 }
 
 void
@@ -89,9 +95,8 @@ query_reset(kdns_query_st *q )
         free(q->wildcard_match);
         q->wildcard_match = NULL;
     }
-    if (q->qname != NULL){
-        memset((void *)q->qname,0,sizeof(struct domain_name)+ MAXDOMAINLEN * 2);
-    }   
+    q->qname->name_size = 0;
+    q->qname->label_count = 0;
     buffer_clear(q->packet);
     q->qtype = 0;
     q->qclass = 0;
@@ -103,6 +108,7 @@ query_reset(kdns_query_st *q )
     q->cname_count = 0;
     q->maxMsgLen= UDP_MAX_MESSAGE_LEN;
     memset(q->view_name,0,MAX_VIEW_NAME_LEN);
+    q->answer.rrset_count = 0;
 }
 
 /*
@@ -120,7 +126,7 @@ process_query_section(kdns_query_st *query)
 	if(!packet_read_query_section(query->packet, qnamebuf,
 		&query->qtype, &query->qclass))
 		return 0;
-	query->qname = domain_name_make_no_malloc( qnamebuf, 1,(domain_name_st *)query->qname);
+	domain_name_make_no_malloc( qnamebuf, 1,(domain_name_st *)query->qname);
 	return 1;
 }
 
@@ -425,14 +431,13 @@ query_response(struct kdns * kdns, struct query *q)
 	domain_type *closest_encloser;
 	int exact;
 	uint16_t offset;
-	kdns_answer_st answer ={0};
 
 	exact = domain_store_lookup( kdns->db, q->qname, &closest_match, &closest_encloser);
-	answer_lookup_zone( kdns, q, &answer, exact, closest_match,closest_encloser);
+	answer_lookup_zone( kdns, q, &q->answer, exact, closest_match,closest_encloser);
 	if (GET_RCODE(q->packet) != RCODE_REFUSE) {
 		offset = domain_name_label_offsets(q->qname)[domain_dname(closest_encloser)->label_count - 1] + DNS_HEAD_SIZE;
 		query_compressed_table_add(q, closest_encloser, offset);
-		encode_answer(q, &answer);
+		encode_answer(q, &q->answer);
 		query_compressed_table_clear(q);
 	}
 }
@@ -482,7 +487,6 @@ query_state_type query_process(kdns_query_st *q, kdns_type * kdns)
 
  	buffer_setlimit(q->packet, buffer_get_position(q->packet));
 
-    //
 	query_prepare_response_data(q);
 
 	if (q->qclass != CLASS_IN ) {

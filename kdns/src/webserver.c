@@ -103,6 +103,7 @@ static int send_bad_response( struct MHD_Connection *connection)
     return ret;                                                     
 }  
 
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 static int
 send_page (struct MHD_Connection *connection,  void *data, int len)
 {
@@ -121,6 +122,7 @@ send_page (struct MHD_Connection *connection,  void *data, int len)
     
     return send_bad_response(connection);
 }
+#pragma GCC diagnostic warning "-Wdeprecated-declarations"
 
 static int iterate_post(void *coninfo_cls, enum MHD_ValueKind kind, const char *key,
         const char *filename, const char *content_type, const char *transfer_encoding,

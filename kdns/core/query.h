@@ -24,12 +24,19 @@ typedef enum query_state {
 	QUERY_FAIL,
 }query_state_type;
 
+typedef struct answer {
+    size_t rrset_count;
+    rrset_type *rrsets[MAXRRSPP];
+    domain_type *domains[MAXRRSPP];
+    rr_section_type section[MAXRRSPP];
+}kdns_answer_st;
+
 /* Query as we pass it around */
 
 typedef struct query {
 	domain_type *wildcard_match;
 	buffer_st *packet;
-	const domain_name_st *qname;
+	domain_name_st *qname;
 	uint16_t qtype;
 	uint16_t qclass;
     uint8_t opcode;
@@ -46,7 +53,8 @@ typedef struct query {
 
     domain_type *compressed_dnames[MAXRRSPP];
     uint16_t    compressed_count;
-    
+
+    kdns_answer_st answer;
     /*
 	uint16_t     compressed_domain_name_count;
 	domain_type *compressed_dnames[MAXRRSPP];
@@ -54,13 +62,6 @@ typedef struct query {
 	size_t compressed_domain_name_offsets_size;
 	*/
 }kdns_query_st;
-
-typedef struct answer {
-	size_t rrset_count;
-	rrset_type *rrsets[MAXRRSPP];
-	domain_type *domains[MAXRRSPP];
-	rr_section_type section[MAXRRSPP];
-}kdns_answer_st;
 
 static inline int check_view_info(kdns_query_st *query, rr_type *rr)
 {

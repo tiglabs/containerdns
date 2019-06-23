@@ -34,6 +34,6 @@ zone.h
 
 CFLAGS += $(INCLUDE)
 
-CFLAGS += $(WERROR_FLAGS) -g -Wno-cast-qual -Wno-unused-function -Wno-deprecated-declarations
+CFLAGS += $(WERROR_FLAGS) -g -O2 -Wno-cast-qual
 
 include $(RTE_SDK)/mk/rte.extlib.mk
