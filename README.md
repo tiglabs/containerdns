@@ -1,8 +1,8 @@
 # ContainerDNS
 
 ## Introduction
-ContainerDNS is used as internal DNS server for k8s cluster, and use DNS library : https://github.com/miekg/dns. containerdns-kubeapi will monitor 
-the services in k8s cluster,when the service is created and has been assigned with external ips, 
+ContainerDNS works as an internal DNS server for k8s cluster. It is based on DNS library : https://github.com/miekg/dns. containerdns-kubeapi will monitor 
+the services in k8s cluster, when the service is created and has been assigned with external ips, 
 the user(docker)in cluster can access the service with the domain.
 When the domain has multiple ips, the containerdns will choose one actived for the user randomly, 
 it seems like a load balancer.
@@ -249,9 +249,12 @@ the config file like this:
 
 ## DPDK-based Optimization
 
-### production-ready
-```
-    Help ContainerDNS (DNS) services improve throughput performace with DPDK technology.
-    It's called kdns, and it's production-ready, and the performance reaches 1000W QPS.
-    Of course, the source code has be opened. https://github.com/tiglabs/containerdns/kdns.
-```
+Improve ContainerDNS throughput by leveraging the DPDK technology to reach nearly 10 million QPS, https://github.com/tiglabs/containerdns/kdns and the code is also production-ready. 
+
+
+## Reference
+
+Reference to cite when you use ContainerDNS in a paper or research report: "A High Performance, Scalable DNS Service for Very Large Scale Container Cloud Platforms", in Middleware'18
+
+
+
