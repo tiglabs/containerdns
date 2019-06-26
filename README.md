@@ -247,9 +247,9 @@ the config file like this:
 ### Test result
    ![image](https://github.com/tiglabs/containerdns/blob/master/images/DNS_performance.png)
 
-## Future
+## DPDK-based Optimization
 
-### DPDK-based Optimization
+### production-ready
 ```
     Help ContainerDNS (DNS) services improve throughput performace with DPDK technology.
     It's called kdns, and it's production-ready, and the performance reaches 1000W QPS.
