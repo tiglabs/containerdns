@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "view.h"
 #include "domain_store.h"
 
 static domain_type *
@@ -494,6 +495,7 @@ struct  domain_store *domain_store_open (void)
 	db = (domain_store_type *)xalloc_zero(sizeof(struct  domain_store));
 	db->domains = domain_table_create();
 	db->zonetree = radix_tree_create();
+	db->viewtree = view_tree_create();
     return db;
 
 }

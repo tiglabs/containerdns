@@ -181,7 +181,7 @@ static void *thread_tcp_process(void *arg) {
 
     bzero(&saddr, sizeof(saddr));
     saddr.sin_family = AF_INET;
-    saddr.sin_addr.s_addr = inet_addr(ip);;
+    saddr.sin_addr.s_addr = inet_addr(ip);
     saddr.sin_port = htons(53);
     if (bind(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) == -1) {
         log_msg(LOG_ERR, "Failed to bind tcp, ip %s, errno=%d, errinfo=%s\n", ip, errno, strerror(errno));
@@ -258,7 +258,7 @@ static void *thread_tcp_process(void *arg) {
 
             memcpy(&flags_old, tcp_query->packet->data + 2, 2);
 
-            view_query_process(tcp_query);
+            view_query_master_process(tcp_query);
             rte_rwlock_read_lock(&tcp_lock);
             if (query_process(tcp_query, &tcp_kdns) != QUERY_FAIL) {
                 buffer_flip(tcp_query->packet);

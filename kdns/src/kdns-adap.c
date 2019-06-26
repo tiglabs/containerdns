@@ -10,7 +10,7 @@
 #include "query.h"
 #include "dns-conf.h"
 #include "db_update.h"
-#include "view.h"
+#include "view_update.h"
 
 
 #define MAX_CORES 64
@@ -116,11 +116,8 @@ kdns_query_st *dns_packet_proess(uint32_t sip, uint8_t *query_data, int query_le
     query->packet->data = query_data;
     query->packet->position += query_len;
     query->sip = sip;
-    view_value_t* data = view_find(dpdk_dns[lcore_id].db->viewtree, (uint8_t *)&sip,32);
-    if (data != VIEW_NO_NODE){
-        snprintf(query->view_name,MAX_VIEW_NAME_LEN,"%s",data->view_name);
-    }
-   
+    view_query_slave_process(query, lcore_id);
+
     buffer_flip(query->packet);
 
     if(query_process(query, &dpdk_dns[lcore_id]) != QUERY_FAIL) {

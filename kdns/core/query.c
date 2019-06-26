@@ -293,7 +293,7 @@ answer_domain(struct kdns*  kdns, struct query *q, kdns_answer_st *answer,
 			if (view_match_idx != -1) {
 				rrs_idx = view_match_idx;
 			} else if (def_match_idx != -1) {
-				rrs_idx = def_match_idx;;
+				rrs_idx = def_match_idx;
 			} else {
 				return;
 			}

@@ -27,6 +27,7 @@
 #include "view_update.h"
 #include "dns-conf.h"
 #include "rate_limit.h"
+#include "ctrl_msg.h"
 
 #define PREFETCH_OFFSET     (3)
 
@@ -58,7 +59,7 @@ static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, u
     }
     uint16_t ip_hdr_len = (ipv4_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
     uint16_t ip_total_length = rte_be_to_cpu_16(ipv4_hdr->total_length);
-    if (unlikely(ip_hdr_len != sizeof(struct ipv4_hdr) || pkt->pkt_len != (sizeof(struct ether_hdr) + ip_total_length))) {
+    if (unlikely(ip_hdr_len != sizeof(struct ipv4_hdr) || ip_total_length < ip_hdr_len || pkt->pkt_len < (sizeof(struct ether_hdr) + ip_total_length))) {
         log_msg(LOG_ERR, "illegal pkt: pkt_len(%d), ip_hdr_len(%d), ip_total_length(%d)\n", pkt->pkt_len, ip_hdr_len, ip_total_length);
         conf->stats.pkt_len_err++;
         conf->stats.pkt_dropped++;
@@ -125,7 +126,7 @@ static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, u
 
 int process_slave(__attribute__((unused)) void *arg) {
     int i;
-    uint16_t rx_count;
+    uint16_t rx_count, cp_count = 0;
     uint64_t now_tsc, prev_tsc, intvl_tsc;
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
@@ -135,19 +136,16 @@ int process_slave(__attribute__((unused)) void *arg) {
     intvl_tsc = rte_get_timer_hz() / 1000;  //1ms
 
     kdns_init(lcore_id);
-    domain_msg_ring_create(lcore_id);
-    view_msg_ring_create(lcore_id);
     rate_limit_init(lcore_id);
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
     log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1) {
         now_tsc = rte_rdtsc();
-        if (now_tsc - prev_tsc > intvl_tsc) {
+        if (cp_count || now_tsc - prev_tsc > intvl_tsc) {
             prev_tsc = now_tsc;
             config_reload_pre_core(lcore_id);
-            view_msg_slave_process();
-            domain_msg_slave_process();
+            cp_count = ctrl_msg_slave_process(lcore_id);
         }
 
         rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
@@ -225,8 +223,8 @@ static int reset_master_affinity(void) {
 void process_master(__attribute__((unused)) void *arg) {
     unsigned lcore_id = rte_lcore_id();
 
-    domain_msg_ring_create(lcore_id);
-    view_msg_ring_create(lcore_id);
+    domain_info_master_init();
+    view_master_init();
 
     domian_info_exchange_run(g_dns_cfg->comm.web_port);
 
@@ -237,8 +235,8 @@ void process_master(__attribute__((unused)) void *arg) {
         unsigned pkt_num;
 
         config_reload_pre_core(lcore_id);
-        view_msg_master_process();
-        domain_msg_master_process();
+        ctrl_msg_master_process();
+
         uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx, NETIF_MAX_PKT_BURST);
         if (rx_count == 0) {
             rte_kni_tx_burst(master_kni, NULL, 0);

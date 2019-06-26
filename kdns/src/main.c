@@ -22,6 +22,7 @@
 #include "tcp_process.h"
 #include "local_udp_process.h"
 #include "domain_update.h"
+#include "ctrl_msg.h"
 
 #define VERSION "0.2.1"
 #define DEFAULT_CONF_FILEPATH "/etc/kdns/kdns.cfg"
@@ -188,13 +189,14 @@ int  main(int argc, char **argv)
     init_signals();
     rte_pdump_init("/var/run/.dpdk");
 
+    tcp_process_init(g_dns_cfg->netdev.kni_vip);
+    local_udp_process_init(g_dns_cfg->netdev.kni_vip);
+
+    ctrl_msg_init();
     unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {
         rte_eal_remote_launch(process_slave, NULL, lcore_id);
     }
-
-    tcp_process_init(g_dns_cfg->netdev.kni_vip);
-    local_udp_process_init(g_dns_cfg->netdev.kni_vip);
 
     process_master(NULL);
 
