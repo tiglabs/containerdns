@@ -8,7 +8,6 @@
 #include <rte_ip.h>
 #include "metrics.h"
 
-
 #define NETIF_MAX_PKT_BURST         32
 
 #define UDP_PORT_53 0x3500 // port 53
@@ -86,8 +85,6 @@ void init_dns_packet_header(struct ether_hdr *eth_hdr, struct ipv4_hdr *ipv4_hdr
 
 int kni_free_kni(uint8_t port_id);
 
-void dns_kni_enqueue(struct netif_queue_conf *conf,struct rte_mbuf **mbufs,uint16_t rx_len);
-uint16_t dns_kni_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len);
 void dns_dpdk_init(void);
 
 

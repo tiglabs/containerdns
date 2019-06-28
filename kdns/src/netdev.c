@@ -17,7 +17,7 @@
 #include "dns-conf.h"
 #include "util.h"
 #include "process.h"
-
+#include "ctrl_msg.h"
 
 #define KNI_ENET_HEADER_SIZE    14
 /* Total octets in the FCS */
@@ -35,11 +35,7 @@ struct rte_mempool *pkt_mbuf_pool;
 
 struct rte_mempool *kni_mbuf_pool;
 
-struct rte_ring *master_kni_pkt_ring;
-
 struct net_device  kdns_net_device ={0};
-static  int rss_enable = 0;
-
 
 /* Options for configuring ethernet port */
 static struct rte_eth_conf port_conf = {
@@ -173,7 +169,6 @@ static int kni_change_mtu(uint8_t port_id, unsigned new_mtu)
 	/* Stop specific port */
 	rte_eth_dev_stop(port_id);
     if ( strcmp(g_dns_cfg->netdev.mode,"rss") == 0 ){
-        rss_enable = 1;
         memcpy(&conf, &port_conf_rss, sizeof(conf));
     }else{
     	memcpy(&conf, &port_conf, sizeof(conf));
@@ -268,7 +263,6 @@ static void init_port(uint8_t port,uint16_t rx_rings, uint16_t tx_rings)
     struct rte_eth_conf conf;
     
     if ( strcmp(g_dns_cfg->netdev.mode,"rss") == 0 ){
-        rss_enable = 1;
         memcpy(&conf, &port_conf_rss, sizeof(conf));
     }else{
     	memcpy(&conf, &port_conf, sizeof(conf));
@@ -308,37 +302,8 @@ static void init_port(uint8_t port,uint16_t rx_rings, uint16_t tx_rings)
         exit(-1);
     }
 	rte_eth_promiscuous_enable(port);
-    
+
 }
-
-void dns_kni_enqueue(struct netif_queue_conf *conf,struct rte_mbuf **mbufs,uint16_t rx_len){
-    int i =0;
-    int res = rte_ring_enqueue_bulk(master_kni_pkt_ring, (void *const * )mbufs, rx_len);
-    if (res) {
-        if (res == -EDQUOT) {
-            log_msg(LOG_ERR,"rte_ring_enqueue_bulk err\n ");
-        } else {
-             conf->stats.pkt_dropped += (uint64_t)rx_len;
-            for (i = 0; i < rx_len; i++) {
-                rte_pktmbuf_free(mbufs[i]);
-            }
-        }
-    }else{
-         conf->stats.pkts_2kni += (uint64_t)rx_len; 
-    }
-}
-
-uint16_t dns_kni_dequeue(struct rte_mbuf **mbufs,uint16_t pkts_len){
-
-   while (pkts_len > 0 &&
-				unlikely(rte_ring_dequeue_bulk(master_kni_pkt_ring, (void ** )mbufs,
-					pkts_len) != 0))
-			pkts_len = (uint16_t)RTE_MIN(rte_ring_count(master_kni_pkt_ring),pkts_len);
-   
-   return pkts_len;
-}
-
-
 
 static char *
 flowtype_to_str(uint16_t flow_type)
@@ -407,14 +372,7 @@ void dns_dpdk_init(void){
         exit(-1);
     }
 
-    master_kni_pkt_ring = rte_ring_create("master_kni_pkt_ring", KNI_RING_SIZE, rte_socket_id(), RING_F_SC_DEQ);
-
-    if (master_kni_pkt_ring == NULL){
-        log_msg(LOG_ERR, "Could not initialise ring buf \n");
-        exit(-1);
-    }
-    
-        /* Get number of ports found in scan */
+    /* Get number of ports found in scan */
     nb_sys_ports = rte_eth_dev_count();
     if (nb_sys_ports == 0){
         log_msg(LOG_ERR, "No supported Ethernet device found\n");
@@ -467,8 +425,6 @@ void netif_queue_core_bind(void)
 {
     int rx_id =0;
     int tx_id =0;
-    if (rss_enable)
-        tx_id = 1; 
     unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {     
         netif_queue_conf_init(lcore_id,0,rx_id,tx_id);

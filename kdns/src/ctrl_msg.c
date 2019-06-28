@@ -20,6 +20,7 @@
 #include "rate_limit.h"
 #include "domain_update.h"
 #include "view_update.h"
+#include "process.h"
 
 #define CTRL_RING_SZ        (65536)
 
@@ -45,6 +46,10 @@ int ctrl_msg_master_ingress(void **msg, uint16_t msg_cnt) {
     return ctrl_msg_ingress(ctrl_msg_ring[master_lcore], msg, msg_cnt);
 }
 
+int ctrl_msg_slave_ingress(void **msg, uint16_t msg_cnt, unsigned slave_lcore) {
+    return ctrl_msg_ingress(ctrl_msg_ring[slave_lcore], msg, msg_cnt);
+}
+
 uint16_t ctrl_msg_slave_process(unsigned slave_lcore) {
     uint16_t i, nb_rx;
     ctrl_msg *msg[NETIF_MAX_PKT_BURST];
@@ -62,8 +67,15 @@ uint16_t ctrl_msg_slave_process(unsigned slave_lcore) {
         case CTRL_MSG_TYPE_VIEW:
             view_msg_slave_process(msg[i], slave_lcore);
             break;
+        case CTRL_MSG_TYPE_TO_KNI:
+            log_msg(LOG_ERR, "unexpected msg CTRL_MSG_TYPE_TO_KNI on slave_lcore %u\n", slave_lcore);
+            free(msg[i]);
+            break;
+        case CTRL_MSG_TYPE_TO_TX:
+            kni_msg_slave_process(msg[i], slave_lcore);
+            break;
         default:
-            log_msg(LOG_ERR, "unknow msg type %d\n", msg[i]->type);
+            log_msg(LOG_ERR, "unknow msg type %d on slave_lcore %u\n", msg[i]->type, slave_lcore);
             free(msg[i]);
             break;
         }
@@ -72,7 +84,7 @@ uint16_t ctrl_msg_slave_process(unsigned slave_lcore) {
 }
 
 uint16_t ctrl_msg_master_process(void) {
-    uint16_t i, nb_rx;
+    uint16_t i, nb_copy, nb_rx;
     ctrl_msg *msg[NETIF_MAX_PKT_BURST];
     ctrl_msg *msg_copy[NETIF_MAX_PKT_BURST];
 
@@ -83,11 +95,19 @@ uint16_t ctrl_msg_master_process(void) {
 
     unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+        nb_copy = 0;
         for (i = 0; i < nb_rx; ++i) {
-            msg_copy[i] = xalloc_zero(msg[i]->len);
-            memcpy(msg_copy[i], msg[i], msg[i]->len);
+            if (msg[i]->type == CTRL_MSG_TYPE_DOMAIN || msg[i]->type == CTRL_MSG_TYPE_VIEW) {
+                msg_copy[nb_copy] = xalloc_zero(msg[i]->len);
+                memcpy(msg_copy[nb_copy], msg[i], msg[i]->len);
+                ++nb_copy;
+            }
         }
-        ctrl_msg_ingress(ctrl_msg_ring[lcore_id], (void **)msg_copy, nb_rx);
+        if (nb_copy) {
+            ctrl_msg_ingress(ctrl_msg_ring[lcore_id], (void **)msg_copy, nb_copy);
+        } else {
+            break;
+        }
     }
     for (i = 0; i < nb_rx; ++i) {
         switch (msg[i]->type) {
@@ -97,8 +117,15 @@ uint16_t ctrl_msg_master_process(void) {
         case CTRL_MSG_TYPE_VIEW:
             view_msg_master_process(msg[i]);
             break;
+        case CTRL_MSG_TYPE_TO_KNI:
+            kni_msg_master_process(msg[i]);
+            break;
+        case CTRL_MSG_TYPE_TO_TX:
+            log_msg(LOG_ERR, "unexpected msg CTRL_MSG_TYPE_TO_TX on master_lcore\n");
+            free(msg[i]);
+            break;
         default:
-            log_msg(LOG_ERR, "unknow msg type %d\n", msg[i]->type);
+            log_msg(LOG_ERR, "unknow msg type %d on master_lcore\n", msg[i]->type);
             free(msg[i]);
             break;
         }
