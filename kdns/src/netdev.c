@@ -201,6 +201,14 @@ static void netif_queue_core_bind(uint8_t port_id) {
         kdns_net_device.l_netif_queue_conf[lcore_id].port_id = port_id;
         kdns_net_device.l_netif_queue_conf[lcore_id].rx_queue_id = rx_id;
         kdns_net_device.l_netif_queue_conf[lcore_id].tx_queue_id = tx_id;
+
+        if (rx_id < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
+            rte_eth_dev_set_rx_queue_stats_mapping(port_id, rx_id, rx_id);
+        }
+        if (tx_id < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
+            rte_eth_dev_set_tx_queue_stats_mapping(port_id, tx_id, tx_id);
+        }
+
         ++rx_id;
         ++tx_id;
     }

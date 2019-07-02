@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <rte_ring.h>
 #include <rte_rwlock.h>
+#include <rte_ethdev.h>
 
 #include "webserver.h"
 #include "db_update.h"
@@ -423,7 +424,7 @@ static void *domains_get(__attribute__((unused)) struct connection_info_struct *
     if (!array) {
         out_err = strdup("unable to create array");
         *len_response = strlen(out_err);
-        log_msg(LOG_ERR, "unable to create array\n");
+        log_msg(LOG_ERR, "%s\n", out_err);
         log_msg(LOG_INFO, "domain_get() err out \n");
         return (void *)out_err;
     }
@@ -490,7 +491,7 @@ static void *domain_get(__attribute__((unused)) struct connection_info_struct *c
     if (!array) {
         out_err = strdup("unable to create array");
         *len_response = strlen(out_err);
-        log_msg(LOG_ERR, "unable to create array\n");
+        log_msg(LOG_ERR, "%s\n", out_err);
         log_msg(LOG_INFO, "domain_get() err out \n");
         return (void *)out_err;
     }
@@ -561,11 +562,12 @@ static int domain_num_get(void) {
 }
 
 static void *kdns_status_post(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
-    char *post_ok = strdup("OK\n");
     if (kdns_status) {
         free(kdns_status);
     }
     kdns_status = strdup(DNS_STATUS_RUN);
+
+    char *post_ok = strdup("OK\n");
     *len_response = strlen(post_ok);
     return (void *)post_ok;
 }
@@ -574,6 +576,51 @@ static void *kdns_status_get(__attribute__((unused)) struct connection_info_stru
     char *get_ok = strdup(kdns_status);
     *len_response = strlen(get_ok);
     return (void *)get_ok;
+}
+
+static void *statistics_percore_get(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
+    unsigned lcore_id;
+
+    json_t *array = json_array();
+    if (!array) {
+        char *err = strdup("unable to create array");
+        *len_response = strlen(err);
+        log_msg(LOG_ERR, "%s\n", err);
+        return (void *)err;
+    }
+
+    RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+        struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
+        struct netif_queue_stats *sta_lcore = &conf->stats;
+
+        json_t *value = json_pack("{s:i, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
+                                    s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f,\
+                                    s:f, s:f, s:f, s:f, s:f}",
+                                  "slave_lcore", lcore_id, "pkts_rcv", (double)sta_lcore->pkts_rcv,
+                                  "dns_pkts_rcv", (double)sta_lcore->dns_pkts_rcv, "dns_pkts_snd", (double)sta_lcore->dns_pkts_snd,
+                                  "pkt_dropped", (double)sta_lcore->pkt_dropped, "pkts_2kni", (double)sta_lcore->pkts_2kni,
+                                  "pkts_icmp", (double)sta_lcore->pkts_icmp, "pkt_len_err", (double)sta_lcore->pkt_len_err,
+                                  "dns_lens_rcv", (double)sta_lcore->dns_lens_rcv, "dns_lens_snd", (double)sta_lcore->dns_lens_snd,
+                                  "tcp_pkts_rcv", (double)sta_lcore->dns_pkts_rcv_tcp, "tcp_pkts_snd", (double)sta_lcore->dns_pkts_snd_tcp,
+                                  "tcp_fwd_rcv", (double)sta_lcore->dns_fwd_rcv_tcp, "tcp_fwd_snd", (double)sta_lcore->dns_fwd_snd_tcp,
+                                  "tcp_fwd_lost", (double)sta_lcore->dns_fwd_lost_tcp, "udp_fwd_rcv", (double)sta_lcore->dns_fwd_rcv_udp,
+                                  "udp_fwd_snd", (double)sta_lcore->dns_fwd_snd_udp, "udp_fwd_lost", (double)sta_lcore->dns_fwd_lost_udp,
+                                  "metrics-maxtime", (double)sta_lcore->metrics.maxTime, "metrics-mintime", (double)sta_lcore->metrics.minTime,
+                                  "metrics-sumtime", (double)sta_lcore->metrics.timeSum, "metrics1", (double)sta_lcore->metrics.metrics[0],
+                                  "metrics2", (double)sta_lcore->metrics.metrics[1], "metrics3", (double)sta_lcore->metrics.metrics[2],
+                                  "metrics4", (double)sta_lcore->metrics.metrics[3]);
+
+        if (!value) {
+            log_msg(LOG_ERR, "json_pack err for slave core %u\n", lcore_id);
+            continue;
+        }
+        json_array_append_new(array, value);
+    }
+
+    char *str_ret = json_dumps(array, JSON_COMPACT);
+    json_decref(array);
+    *len_response = strlen(str_ret);
+    return (void *)str_ret;
 }
 
 static void *statistics_get(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
@@ -612,17 +659,103 @@ static void *statistics_get(__attribute__((unused)) struct connection_info_struc
 }
 
 static void *statistics_reset(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
-    char *post_ok = strdup("OK\n");
     netif_statsdata_reset();
     tcp_statsdata_reset();
     fwd_statsdata_reset();
+
+    char *post_ok = strdup("OK\n");
+    *len_response = strlen(post_ok);
+    return (void *)post_ok;
+}
+
+static void *statistics_port_get(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
+    uint8_t port_id = 0;
+    unsigned lcore_id;
+    struct rte_eth_stats eth_stats;
+
+    int ret = rte_eth_stats_get(port_id, &eth_stats);
+    if (ret != 0) {
+        char *err = strdup("unable to get eth stats");
+        *len_response = strlen(err);
+        log_msg(LOG_ERR, "%s, ret %d\n", err, ret);
+        return (void *)err;
+    }
+
+    json_t *array = json_array();
+    if (!array) {
+        char *err = strdup("unable to create array");
+        *len_response = strlen(err);
+        log_msg(LOG_ERR, "%s\n", err);
+        return (void *)err;
+    }
+
+    json_t *value = json_pack("{s:i, s:f, s:f, s:f, s:f, s:f, s:f, s:f, s:f}",
+                              "port", port_id, "ipackets", (double)eth_stats.ipackets,
+                              "opackets", (double)eth_stats.opackets, "ibytes", (double)eth_stats.ibytes,
+                              "obytes", (double)eth_stats.obytes, "imissed", (double)eth_stats.imissed,
+                              "ierrors", (double)eth_stats.ierrors, "oerrors", (double)eth_stats.oerrors,
+                              "rx_nombuf", (double)eth_stats.rx_nombuf);
+
+    if (!value) {
+        log_msg(LOG_ERR, "json_pack err for port %u\n", port_id);
+    } else {
+        json_array_append_new(array, value);
+    }
+
+    RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+        json_t *value = NULL;
+        struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
+        if (conf->rx_queue_id < RTE_ETHDEV_QUEUE_STAT_CNTRS && conf->tx_queue_id < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
+            value = json_pack("{s:i, s:i, s:i, s:f, s:f, s:f, s:f, s:f}",
+                              "slave_lcore", lcore_id, "rx_queue", conf->rx_queue_id, "tx_queue", conf->tx_queue_id,
+                              "q_ipackets", (double)eth_stats.q_ipackets[conf->rx_queue_id],
+                              "q_opackets", (double)eth_stats.q_opackets[conf->tx_queue_id],
+                              "q_ibytes", (double)eth_stats.q_ibytes[conf->rx_queue_id],
+                              "q_obytes", (double)eth_stats.q_obytes[conf->tx_queue_id],
+                              "q_errors", (double)eth_stats.q_errors[conf->rx_queue_id]);
+        } else if (conf->rx_queue_id < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
+            value = json_pack("{s:i, s:i, s:f, s:f, s:f}",
+                              "slave_lcore", lcore_id, "rx_queue", conf->rx_queue_id,
+                              "q_ipackets", (double)eth_stats.q_ipackets[conf->rx_queue_id],
+                              "q_ibytes", (double)eth_stats.q_ibytes[conf->rx_queue_id],
+                              "q_errors", (double)eth_stats.q_errors[conf->rx_queue_id]);
+        } else if (conf->tx_queue_id < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
+            value = json_pack("{s:i, s:i, s:f, s:f}",
+                              "slave_lcore", lcore_id, "tx_queue", conf->tx_queue_id,
+                              "q_opackets", (double)eth_stats.q_opackets[conf->tx_queue_id],
+                              "q_obytes", (double)eth_stats.q_obytes[conf->tx_queue_id]);
+        } else {
+            continue;
+        }
+
+        if (!value) {
+            log_msg(LOG_ERR, "json_pack err for slave core %u, rx queue %u, tx queue %u\n",
+                    lcore_id, conf->rx_queue_id, conf->tx_queue_id);
+            continue;
+        }
+        json_array_append_new(array, value);
+    }
+
+    char *str_ret = json_dumps(array, JSON_COMPACT);
+    json_decref(array);
+    *len_response = strlen(str_ret);
+    return (void *)str_ret;
+}
+
+static void *statistics_port_reset(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
+    uint8_t port_id = 0;
+
+    rte_eth_stats_reset(port_id);
+
+    char *post_ok = strdup("OK\n");
     *len_response = strlen(post_ok);
     return (void *)post_ok;
 }
 
 static void *local_metrics_reset(__attribute__((unused)) struct connection_info_struct *con_info, __attribute__((unused)) char *url, int *len_response) {
-    char *post_ok = strdup("OK\n");
     netif_statsdata_metrics_reset();
+
+    char *post_ok = strdup("OK\n");
     *len_response = strlen(post_ok);
     return (void *)post_ok;
 }
@@ -641,6 +774,10 @@ void domian_info_exchange_run(int port) {
 
     web_endpoint_add("GET", "/kdns/statistics/get", dins, &statistics_get);
     web_endpoint_add("POST", "/kdns/statistics/reset", dins, &statistics_reset);
+
+    web_endpoint_add("GET", "/kdns/statistics/percore/get", dins, &statistics_percore_get);
+    web_endpoint_add("GET", "/kdns/statistics/port/get", dins, &statistics_port_get);
+    web_endpoint_add("POST", "/kdns/statistics/port/reset", dins, &statistics_port_reset);
 
     web_endpoint_add("POST", "/kdns/view", dins, &view_post);
     web_endpoint_add("GET", "/kdns/view", dins, &view_get);
