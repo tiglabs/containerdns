@@ -217,7 +217,7 @@ static void kdns_port_init(uint8_t port_id) {
     uint16_t nb_tx_desc = g_dns_cfg->netdev.txq_desc_num;
     unsigned nb_mbuf = g_dns_cfg->netdev.mbuf_num;
 
-    pkt_mbuf_pool = rte_pktmbuf_pool_create("pkt_mbuf_pool", nb_mbuf, MBUF_CACHE_DEF, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    pkt_mbuf_pool = rte_pktmbuf_pool_create("pkt_mbuf_pool", nb_mbuf, MBUF_CACHE_DEF, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_eth_dev_socket_id(port_id));
     if (pkt_mbuf_pool == NULL) {
         log_msg(LOG_ERR, "Could not initialise pkt_mbuf_pool\n");
         exit(-1);
@@ -352,7 +352,7 @@ static int kdns_kni_init(uint8_t port_id) {
     unsigned nb_mbuf = g_dns_cfg->netdev.kni_mbuf_num;
     char *kni_name = g_dns_cfg->netdev.name_prefix;
 
-    kni_mbuf_pool = rte_pktmbuf_pool_create("kni_mbuf_pool", nb_mbuf, MBUF_CACHE_DEF, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    kni_mbuf_pool = rte_pktmbuf_pool_create("kni_mbuf_pool", nb_mbuf, MBUF_CACHE_DEF, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_eth_dev_socket_id(port_id));
     if (kni_mbuf_pool == NULL) {
         log_msg(LOG_ERR, "Could not initialise kni_mbuf_pool\n");
         exit(-1);
