@@ -30,11 +30,11 @@
 #include "ctrl_msg.h"
 
 #define PREFETCH_OFFSET     (3)
+#define UDP_PORT_53         (0x3500)    // port 53
 
 extern struct dns_config *g_dns_cfg;
-extern struct rte_kni *master_kni;
 
-void kni_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
+void tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
     ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
 
     struct netif_queue_conf *conf = netif_queue_conf_get(slave_lcore);
@@ -48,7 +48,7 @@ void kni_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
     free(mmsg);
 }
 
-static void kni_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
+static void tx_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
     uint16_t i;
     static unsigned kni_slave_lcore = 0;
 
@@ -74,13 +74,7 @@ static void kni_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
 void kni_msg_master_process(ctrl_msg *msg) {
     ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
 
-    uint16_t cnts = rte_kni_tx_burst(master_kni, mmsg->mbufs, mmsg->mbufs_cnts);
-    if (unlikely(cnts < mmsg->mbufs_cnts)) {
-        log_msg(LOG_ERR, "Failed to send %u pkt to kni\n", mmsg->mbufs_cnts - cnts);
-        do {
-            rte_pktmbuf_free(mmsg->mbufs[cnts]);
-        } while (++cnts < mmsg->mbufs_cnts);
-    }
+    kni_egress(mmsg->mbufs, mmsg->mbufs_cnts);
     free(mmsg);
 }
 
@@ -213,7 +207,7 @@ int process_slave(__attribute__((unused)) void *arg) {
     rate_limit_init(lcore_id);
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
-    log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
+    log_msg(LOG_INFO, "Starting slave on core %u: rx %u, tx %u\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1) {
         now_tsc = rte_rdtsc();
         if (cp_count || now_tsc - prev_tsc > intvl_tsc) {
@@ -251,7 +245,7 @@ int process_slave(__attribute__((unused)) void *arg) {
             int ntx = rte_eth_tx_burst(conf->port_id, conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
             conf->stats.dns_pkts_snd += ntx;
             if (unlikely(ntx != conf->tx_len)) {
-                log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n", rx_count, conf->tx_len, ntx);
+                log_msg(LOG_ERR, "rx=%d, tx=%d, failed tx=%d, on slave=%u\n", rx_count, conf->tx_len, conf->tx_len - ntx, lcore_id);
                 int i = 0;
                 for (i = ntx; i < conf->tx_len; i++) {
                     rte_pktmbuf_free(conf->tx_mbufs[i]);
@@ -295,6 +289,8 @@ static int reset_master_affinity(void) {
 }
 
 int process_master(__attribute__((unused)) void *arg) {
+    uint16_t nb_ctrl = 0, nb_kni = 0, nb_fwd = 0;
+    struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
 
     domain_info_master_init();
@@ -306,27 +302,20 @@ int process_master(__attribute__((unused)) void *arg) {
     log_msg(LOG_INFO, "Starting master on core %u\n", lcore_id);
     while (1) {
         config_reload_pre_core(lcore_id);
-        ctrl_msg_master_process();
+        nb_ctrl = ctrl_msg_master_process();
 
-        rte_kni_handle_request(master_kni);
-
-        struct rte_mbuf *kni_pkts_tx[NETIF_MAX_PKT_BURST];
-        uint16_t npkts = rte_kni_rx_burst(master_kni, kni_pkts_tx, NETIF_MAX_PKT_BURST);
-        if (npkts > 0) {
-            kni_msg_slave_ingress(kni_pkts_tx, (uint16_t)npkts);
+        nb_kni = kni_ingress(mbufs, NETIF_MAX_PKT_BURST);
+        if (nb_kni > 0) {
+            tx_msg_slave_ingress(mbufs, nb_kni);
         }
 
-        //fwd
-        struct rte_mbuf *fwd_pkts_tx[NETIF_MAX_PKT_BURST];
-        unsigned fwd_count = fwd_response_dequeue(fwd_pkts_tx, NETIF_MAX_PKT_BURST);
-        if (fwd_count != 0) {
-            uint16_t nb_tx = rte_eth_tx_burst(0, 0, fwd_pkts_tx, (uint16_t)fwd_count);
-            if (unlikely(nb_tx < fwd_count)) {
-                uint16_t i = 0;
-                for (i = nb_tx; i < fwd_count; i++) {
-                    rte_pktmbuf_free(fwd_pkts_tx[i]);
-                }
-            }
+        nb_fwd = fwd_response_dequeue(mbufs, NETIF_MAX_PKT_BURST);
+        if (nb_fwd > 0) {
+            tx_msg_slave_ingress(mbufs, nb_fwd);
+        }
+
+        if (nb_ctrl == 0 && nb_kni == 0 && nb_fwd == 0) {
+            rte_delay_ms(1);
         }
     }
 

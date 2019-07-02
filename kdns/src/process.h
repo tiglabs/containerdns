@@ -5,7 +5,7 @@
 #include "netdev.h"
 #include "ctrl_msg.h"
 
-void kni_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore);
+void tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore);
 
 void kni_msg_master_process(ctrl_msg *msg);
 

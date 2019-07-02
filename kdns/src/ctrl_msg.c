@@ -72,7 +72,7 @@ uint16_t ctrl_msg_slave_process(unsigned slave_lcore) {
             free(msg[i]);
             break;
         case CTRL_MSG_TYPE_TO_TX:
-            kni_msg_slave_process(msg[i], slave_lcore);
+            tx_msg_slave_process(msg[i], slave_lcore);
             break;
         default:
             log_msg(LOG_ERR, "unknow msg type %d on slave_lcore %u\n", msg[i]->type, slave_lcore);

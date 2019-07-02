@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,21 +29,18 @@
 #define DEFAULT_CONF_FILEPATH "/etc/kdns/kdns.cfg"
 #define PIDFILE "/var/run/kdns.pid"
 
+static char *dns_cfgfile;
+static char *dns_procname;
 
-static  char *dns_cfgfile;
-static  char *dns_procname;
-
-static char *
-parse_progname(char *arg) {
+static char *parse_progname(char *arg) {
     char *p;
-    if ((p = strrchr(arg, '/')) != NULL)
+    if ((p = strrchr(arg, '/')) != NULL) {
         return strdup(p + 1);
+    }
     return strdup(arg);
 }
 
-
-static void
-parse_args(int argc, char *argv[]) {
+static void parse_args(int argc, char *argv[]) {
     int i;
     for (i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--conf=", 7) == 0) {
@@ -50,12 +48,11 @@ parse_args(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--version") == 0) {
             printf("Version: %s\n", VERSION);
             exit(0);
-        }
-        else if (strcmp(argv[i], "--help") == 0) {
-            printf("usage: [--conf=%s] [--version] [--help]\n",DEFAULT_CONF_FILEPATH);
+        } else if (strcmp(argv[i], "--help") == 0) {
+            printf("usage: [--conf=%s] [--version] [--help]\n", DEFAULT_CONF_FILEPATH);
             exit(0);
-        }else {   
-            printf("usage: [--conf=%s] [--version] [--help]\n",DEFAULT_CONF_FILEPATH);
+        } else {
+            printf("usage: [--conf=%s] [--version] [--help]\n", DEFAULT_CONF_FILEPATH);
             exit(0);
         }
     }
@@ -64,47 +61,43 @@ parse_args(int argc, char *argv[]) {
     }
 }
 
-
-static void signal_handler(int sig)
-{
-    switch (sig) 
-	{
-        case SIGQUIT:
-            log_msg(LOG_ERR, "QUIT signal @@@.");
-            break;
-        case SIGTERM:
-            log_msg(LOG_ERR, "TERM signal @@@.");
-            break;
-        case SIGINT:
-            log_msg(LOG_ERR, "INT signal @@@.");
-            break;
-        case SIGHUP:
-            log_msg(LOG_INFO, "Program hanged up @@@.");
-            config_reload_proc(dns_cfgfile);
-            return;
-        case SIGPIPE:
-            log_msg(LOG_ERR, "SIGPIPE @@@.");
-            break;
-        case SIGCHLD:
-            log_msg(LOG_ERR, "SIGCHLD @@@.");
-            break;
-        case SIGUSR1:
-            log_msg(LOG_ERR, "SIGUSR1 @@@.");
-            break;
-		case SIGUSR2:
-			 break;
-        case SIGURG:
-            log_msg(LOG_ERR, "SIGURG @@@.");
-            break;
-        default:
-            log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
+static void signal_handler(int sig) {
+    switch (sig) {
+    case SIGQUIT:
+        log_msg(LOG_ERR, "QUIT signal @@@.");
+        break;
+    case SIGTERM:
+        log_msg(LOG_ERR, "TERM signal @@@.");
+        break;
+    case SIGINT:
+        log_msg(LOG_ERR, "INT signal @@@.");
+        break;
+    case SIGHUP:
+        log_msg(LOG_INFO, "Program hanged up @@@.");
+        config_reload_proc(dns_cfgfile);
+        return;
+    case SIGPIPE:
+        log_msg(LOG_ERR, "SIGPIPE @@@.");
+        break;
+    case SIGCHLD:
+        log_msg(LOG_ERR, "SIGCHLD @@@.");
+        break;
+    case SIGUSR1:
+        log_msg(LOG_ERR, "SIGUSR1 @@@.");
+        break;
+    case SIGUSR2:
+        break;
+    case SIGURG:
+        log_msg(LOG_ERR, "SIGURG @@@.");
+        break;
+    default:
+        log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
+        break;
     }
     rte_pdump_uninit();
 }
 
-
-static void init_signals(void)
-{
+static void init_signals(void) {
     struct sigaction sigact;
     sigact.sa_handler = signal_handler;
     sigemptyset(&sigact.sa_mask);
@@ -116,13 +109,12 @@ static void init_signals(void)
     sigaction(SIGPIPE, &sigact, NULL);
     sigaction(SIGCHLD, &sigact, NULL);
     sigaction(SIGURG, &sigact, NULL);
-	sigaction(SIGUSR1, &sigact, NULL);
-	sigaction(SIGUSR2, &sigact, NULL);
+    sigaction(SIGUSR1, &sigact, NULL);
+    sigaction(SIGUSR2, &sigact, NULL);
 }
 
 //set thread's affinity to cpus that are not used by dpdk
-static int set_thread_affinity(void)
-{
+static int set_thread_affinity(void) {
     int s;
     uint8_t cid;
     pthread_t tid;
@@ -160,8 +152,10 @@ static int set_thread_affinity(void)
     return 0;
 }
 
-int  main(int argc, char **argv)
-{ 
+int main(int argc, char **argv) {
+    int i;
+    char *dpdk_argv[DPDK_ARG_MAX_NUM];
+
     if (check_pid(PIDFILE) < 0) {
         exit(0);
     }
@@ -169,30 +163,34 @@ int  main(int argc, char **argv)
 
     dns_procname = parse_progname(argv[0]);
     parse_args(argc, argv);
-    config_file_load(dns_cfgfile,dns_procname);
+    config_file_load(dns_cfgfile, dns_procname);
 
     log_open(g_dns_cfg->comm.log_file);
 
-    dns_dpdk_init();
+    for (i = 0; i < g_dns_cfg->dpdk.argc; i++) {
+        dpdk_argv[i] = strdup(g_dns_cfg->dpdk.argv[i]);
+    }
+    if (rte_eal_init(g_dns_cfg->dpdk.argc, dpdk_argv) < 0) {
+        log_msg(LOG_ERR, "EAL init failed.\n");
+        exit(-1);
+    }
+    kdns_netdev_init();
 
     if (set_thread_affinity() != 0) {
         log_msg(LOG_ERR, "set_thread_affinity failed\n");
         exit(EXIT_FAILURE);
     }
 
-    fwd_server_init();
-
-    netif_queue_core_bind();
-
     // struct sigaction action;
     /* Setup the signal handling... */
     init_signals();
     rte_pdump_init("/var/run/.dpdk");
 
+    ctrl_msg_init();
+    fwd_server_init();
     tcp_process_init(g_dns_cfg->netdev.kni_vip);
     local_udp_process_init(g_dns_cfg->netdev.kni_vip);
 
-    ctrl_msg_init();
     unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {
         rte_eal_remote_launch(process_slave, NULL, lcore_id);
