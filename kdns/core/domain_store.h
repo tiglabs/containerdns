@@ -92,7 +92,7 @@ typedef struct  domain_store
 {
 	struct domain_table* domains;
 	struct radtree*    zonetree;
-        struct view_tree *    viewtree;
+	struct view_tree* viewtree;
 }domain_store_type;
 
 

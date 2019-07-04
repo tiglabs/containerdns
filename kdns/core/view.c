@@ -22,7 +22,7 @@ static view_node_t *view_tree_alloc_node(view_tree_t *tree)
         node = tree->free;
         tree->free = node->right;
     } else {
-        node = calloc(sizeof *node, 1);
+        node = xalloc_zero(sizeof *node);
     }
 
     /* init node */
@@ -85,7 +85,7 @@ static view_node_t* do_view_tree_get(view_tree_t *tree, uint8_t *key, size_t nbi
 
 static int do_view_tree_insert(view_tree_t *tree, uint8_t *key, size_t nbits, char *pcidr, char *view_name)
 {
-    view_value_t *view_data = (view_value_t *)calloc(1, sizeof(view_value_t));
+    view_value_t *view_data = (view_value_t *)xalloc_zero(sizeof(view_value_t));
     if (view_data == NULL) {
         log_msg(LOG_ERR, "no mem for caloc :%s--%s\n", pcidr, view_name);
         return -1;
@@ -153,7 +153,7 @@ static int do_view_tree_delete(view_tree_t *tree, uint8_t *key, size_t nbits, ch
 
 view_tree_t *view_tree_create(void)
 {
-    view_tree_t *tree = calloc(sizeof *tree, 1);
+    view_tree_t *tree = xalloc_zero(sizeof *tree);
 
     tree->free = NULL;
     tree->size = 0;

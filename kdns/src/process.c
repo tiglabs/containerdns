@@ -27,11 +27,80 @@
 #include "view_update.h"
 #include "dns-conf.h"
 #include "rate_limit.h"
+#include "ctrl_msg.h"
 
 #define PREFETCH_OFFSET     (3)
+#define UDP_PORT_53         (0x3500)    // port 53
 
 extern struct dns_config *g_dns_cfg;
-extern struct rte_kni *master_kni;
+
+void tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
+    ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
+
+    struct netif_queue_conf *conf = netif_queue_conf_get(slave_lcore);
+    uint16_t cnts = rte_eth_tx_burst(conf->port_id, conf->tx_queue_id, mmsg->mbufs, mmsg->mbufs_cnts);
+    if (unlikely(cnts < mmsg->mbufs_cnts)) {
+        log_msg(LOG_ERR, "Failed to send %u pkt to tx_queue %u on slave_lcore %u\n", mmsg->mbufs_cnts - cnts, conf->tx_queue_id, slave_lcore);
+        do {
+            rte_pktmbuf_free(mmsg->mbufs[cnts]);
+        } while (++cnts < mmsg->mbufs_cnts);
+    }
+    free(mmsg);
+}
+
+static void tx_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
+    uint16_t i;
+    static unsigned kni_slave_lcore = 0;
+
+    ctrl_mbufs_msg *msg = xalloc_zero(sizeof(ctrl_mbufs_msg));
+    msg->cmsg.type = CTRL_MSG_TYPE_TO_TX;
+    msg->cmsg.len = sizeof(ctrl_mbufs_msg);
+    msg->mbufs_cnts = rx_len;
+    for (i = 0; i < rx_len; ++i) {
+        msg->mbufs[i] = mbufs[i];
+    }
+
+    kni_slave_lcore = rte_get_next_lcore(kni_slave_lcore, 1, 1);
+    int s_cnt = ctrl_msg_slave_ingress((void **)&msg, 1, kni_slave_lcore);
+    if (s_cnt != 1) {
+        log_msg(LOG_ERR, "Failed to send %u pkt to tx msg to slave_lcore %u\n", rx_len, kni_slave_lcore);
+        for (i = 0; i < rx_len; i++) {
+            rte_pktmbuf_free(mbufs[i]);
+        }
+        free(msg);
+    }
+}
+
+void kni_msg_master_process(ctrl_msg *msg) {
+    ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
+
+    kni_egress(mmsg->mbufs, mmsg->mbufs_cnts);
+    free(mmsg);
+}
+
+static void kni_msg_master_ingress(struct rte_mbuf **mbufs, uint16_t rx_len, struct netif_queue_conf *conf) {
+    uint16_t i;
+
+    ctrl_mbufs_msg *msg = xalloc_zero(sizeof(ctrl_mbufs_msg));
+    msg->cmsg.type = CTRL_MSG_TYPE_TO_KNI;
+    msg->cmsg.len = sizeof(ctrl_mbufs_msg);
+    msg->mbufs_cnts = rx_len;
+    for (i = 0; i < rx_len; ++i) {
+        msg->mbufs[i] = mbufs[i];
+    }
+
+    int s_cnt = ctrl_msg_master_ingress((void **)&msg, 1);
+    if (s_cnt != 1) {
+        log_msg(LOG_ERR, "Failed to send %u pkt to kni msg\n", rx_len);
+        conf->stats.pkt_dropped += (uint64_t)rx_len;
+        for (i = 0; i < rx_len; i++) {
+            rte_pktmbuf_free(mbufs[i]);
+        }
+        free(msg);
+    } else {
+        conf->stats.pkts_2kni += (uint64_t)rx_len;
+    }
+}
 
 static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, unsigned lcore_id) {
     uint16_t ether_hdr_offset = sizeof(struct ether_hdr);
@@ -58,7 +127,7 @@ static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, u
     }
     uint16_t ip_hdr_len = (ipv4_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
     uint16_t ip_total_length = rte_be_to_cpu_16(ipv4_hdr->total_length);
-    if (unlikely(ip_hdr_len != sizeof(struct ipv4_hdr) || pkt->pkt_len != (sizeof(struct ether_hdr) + ip_total_length))) {
+    if (unlikely(ip_hdr_len != sizeof(struct ipv4_hdr) || ip_total_length < ip_hdr_len || pkt->pkt_len < (sizeof(struct ether_hdr) + ip_total_length))) {
         log_msg(LOG_ERR, "illegal pkt: pkt_len(%d), ip_hdr_len(%d), ip_total_length(%d)\n", pkt->pkt_len, ip_hdr_len, ip_total_length);
         conf->stats.pkt_len_err++;
         conf->stats.pkt_dropped++;
@@ -125,7 +194,7 @@ static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, u
 
 int process_slave(__attribute__((unused)) void *arg) {
     int i;
-    uint16_t rx_count;
+    uint16_t rx_count, cp_count = 0;
     uint64_t now_tsc, prev_tsc, intvl_tsc;
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
@@ -135,19 +204,16 @@ int process_slave(__attribute__((unused)) void *arg) {
     intvl_tsc = rte_get_timer_hz() / 1000;  //1ms
 
     kdns_init(lcore_id);
-    domain_msg_ring_create(lcore_id);
-    view_msg_ring_create(lcore_id);
     rate_limit_init(lcore_id);
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
-    log_msg(LOG_INFO, "Starting core %u conf: rx=%d, tx=%d\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
+    log_msg(LOG_INFO, "Starting slave on core %u: rx %u, tx %u\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1) {
         now_tsc = rte_rdtsc();
-        if (now_tsc - prev_tsc > intvl_tsc) {
+        if (cp_count || now_tsc - prev_tsc > intvl_tsc) {
             prev_tsc = now_tsc;
             config_reload_pre_core(lcore_id);
-            view_msg_slave_process();
-            domain_msg_slave_process();
+            cp_count = ctrl_msg_slave_process(lcore_id);
         }
 
         rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
@@ -179,7 +245,7 @@ int process_slave(__attribute__((unused)) void *arg) {
             int ntx = rte_eth_tx_burst(conf->port_id, conf->tx_queue_id, conf->tx_mbufs, conf->tx_len);
             conf->stats.dns_pkts_snd += ntx;
             if (unlikely(ntx != conf->tx_len)) {
-                log_msg(LOG_ERR, "rx=%d tx=%d real tx=%d\n", rx_count, conf->tx_len, ntx);
+                log_msg(LOG_ERR, "rx=%d, tx=%d, failed tx=%d, on slave=%u\n", rx_count, conf->tx_len, conf->tx_len - ntx, lcore_id);
                 int i = 0;
                 for (i = ntx; i < conf->tx_len; i++) {
                     rte_pktmbuf_free(conf->tx_mbufs[i]);
@@ -189,7 +255,7 @@ int process_slave(__attribute__((unused)) void *arg) {
         }
         // snd to master
         if (unlikely(conf->kni_len > 0)) {
-            dns_kni_enqueue(conf, conf->kni_mbufs, conf->kni_len);
+            kni_msg_master_ingress(conf->kni_mbufs, conf->kni_len, conf);
         }
     }
     return 0;
@@ -222,67 +288,38 @@ static int reset_master_affinity(void) {
     return 0;
 }
 
-void process_master(__attribute__((unused)) void *arg) {
+int process_master(__attribute__((unused)) void *arg) {
+    uint16_t nb_ctrl = 0, nb_kni = 0, nb_fwd = 0;
+    struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
 
-    domain_msg_ring_create(lcore_id);
-    view_msg_ring_create(lcore_id);
+    domain_info_master_init();
+    view_master_init();
 
     domian_info_exchange_run(g_dns_cfg->comm.web_port);
 
     reset_master_affinity();
-    log_msg(LOG_INFO, "Starting master core %u\n", lcore_id);
+    log_msg(LOG_INFO, "Starting master on core %u\n", lcore_id);
     while (1) {
-        struct rte_mbuf *pkts_kni_rx[NETIF_MAX_PKT_BURST];
-        unsigned pkt_num;
-
         config_reload_pre_core(lcore_id);
-        view_msg_master_process();
-        domain_msg_master_process();
-        uint16_t rx_count = dns_kni_dequeue(pkts_kni_rx, NETIF_MAX_PKT_BURST);
-        if (rx_count == 0) {
-            rte_kni_tx_burst(master_kni, NULL, 0);
-            // rte_delay_ms(30);
-        } else {
-            pkt_num = rte_kni_tx_burst(master_kni, pkts_kni_rx, rx_count);
-            if (unlikely(pkt_num < rx_count)) {
-                int i = 0;
-                for (i = pkt_num; i < rx_count; i++) {
-                    rte_pktmbuf_free(pkts_kni_rx[i]);
-                }
-            }
+        nb_ctrl = ctrl_msg_master_process();
+
+        nb_kni = kni_ingress(mbufs, NETIF_MAX_PKT_BURST);
+        if (nb_kni > 0) {
+            tx_msg_slave_ingress(mbufs, nb_kni);
         }
 
-        // kni 
-        rte_kni_handle_request(master_kni);
-
-        struct rte_mbuf *kni_pkts_tx[NETIF_MAX_PKT_BURST];
-        unsigned npkts = rte_kni_rx_burst(master_kni, kni_pkts_tx, NETIF_MAX_PKT_BURST);
-        if (npkts > 0) {
-            uint16_t nb_tx = rte_eth_tx_burst(0, 0, kni_pkts_tx, (uint16_t)npkts);
-            if (unlikely(nb_tx < npkts)) {
-                uint16_t i = 0;
-                for (i = nb_tx; i < npkts; i++) {
-                    rte_pktmbuf_free(kni_pkts_tx[i]);
-                }
-            }
+        nb_fwd = fwd_response_dequeue(mbufs, NETIF_MAX_PKT_BURST);
+        if (nb_fwd > 0) {
+            tx_msg_slave_ingress(mbufs, nb_fwd);
         }
 
-        //fwd
-        struct rte_mbuf *fwd_pkts_tx[NETIF_MAX_PKT_BURST];
-        unsigned fwd_count = fwd_response_dequeue(fwd_pkts_tx, NETIF_MAX_PKT_BURST);
-        if (fwd_count != 0) {
-            uint16_t nb_tx = rte_eth_tx_burst(0, 0, fwd_pkts_tx, (uint16_t)fwd_count);
-            if (unlikely(nb_tx < fwd_count)) {
-                uint16_t i = 0;
-                for (i = nb_tx; i < fwd_count; i++) {
-                    rte_pktmbuf_free(fwd_pkts_tx[i]);
-                }
-            }
+        if (nb_ctrl == 0 && nb_kni == 0 && nb_fwd == 0) {
+            rte_delay_ms(1);
         }
     }
 
-    return;
+    return 0;
 }
 
 

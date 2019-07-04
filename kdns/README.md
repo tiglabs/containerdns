@@ -28,34 +28,42 @@ EAL configuration reference [DPDK document](http://dpdk.org/doc/guides/testpmd_a
 
 ```vim
 [EAL]
-cores = 1,3,5,7
+cores = 1,3,5,7,9
 memory = 1024,1024
 mem-channels = 4
  
 [NETDEV]
 name-prefix = kdns
 mode = rss
-mbuf-num = 50000
-kni-mbuf-num = 10000
+mbuf-num = 65535
+kni-mbuf-num = 8191
 rxqueue-len = 1024
 txqueue-len = 2048
     
 rxqueue-num = 4
-txqueue-num = 5
+txqueue-num = 4
 
 kni-ipv4 = 2.2.2.240
 kni-vip = 10.17.9.100
 
 [COMMON]
-
 log-file = /export/log/kdns/kdns.log
+
 fwd-def-addrs = 114.114.114.114:53,8.8.8.8:53
 fwd-thread-num = 4
+fwd-mode = cache
+fwd-timeout = 2
+fwd-mbuf-num = 65535
+
+all-per-second = 1000
+fwd-per-second = 10
+client-num = 10240
+
 web-port = 5500
 ssl-enable = no
 cert-pem-file = /etc/kdns/server1.pem
 key-pem-file = /etc/kdns/server1-key.pem
-zones = tst.local,example.com
+zones = tst.local,example.com,168.192.in-addr.arpa
 ```
 
 Reserve huge pages memory:

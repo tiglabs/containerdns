@@ -135,7 +135,7 @@ static void *thread_local_udp_process(void *arg) {
 
     bzero(&saddr, sizeof(saddr));
     saddr.sin_family = AF_INET;
-    saddr.sin_addr.s_addr = inet_addr(ip);;
+    saddr.sin_addr.s_addr = inet_addr(ip);
     saddr.sin_port = htons(53);
     if (bind(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
         log_msg(LOG_ERR, "Failed to bind udp, ip %s, errno=%d, errinfo=%s\n", ip, errno, strerror(errno));
@@ -169,7 +169,7 @@ static void *thread_local_udp_process(void *arg) {
 
         memcpy(&flags_old, local_udp_query->packet->data + 2, 2);
 
-        view_query_process(local_udp_query);
+        view_query_master_process(local_udp_query);
         rte_rwlock_read_lock(&local_udp_lock);
         if (query_process(local_udp_query, &local_udp_kdns) != QUERY_FAIL) {
             buffer_flip(local_udp_query->packet);
