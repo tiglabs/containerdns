@@ -65,9 +65,10 @@ static void domain_list_operate(struct domin_info_update *msg, unsigned int hash
         }
     } else {
         if (find != NULL && pre != NULL) {
-            pre->next = find->next;
             if (find == g_domian_hash_list[hashId]) {
                 g_domian_hash_list[hashId] = find->next;
+            } else {
+                pre->next = find->next;
             }
             free(find);
             g_domain_num--;
@@ -79,6 +80,7 @@ static void domain_list_operate(struct domin_info_update *msg, unsigned int hash
 static void domain_list_del_pre_zone(char *zone_name) {
     struct domin_info_update *pre;
     struct domin_info_update *find;
+    struct domin_info_update *tmp;
 
     rte_rwlock_write_lock(&domian_list_lock);
     int i;
@@ -86,13 +88,16 @@ static void domain_list_del_pre_zone(char *zone_name) {
         pre = find = g_domian_hash_list[i];
         while (find) {
             if (strcmp(find->zone_name, zone_name) == 0) {
-                pre->next = find->next;
                 if (find == g_domian_hash_list[i]) {
                     g_domian_hash_list[i] = find->next;
+                    pre = g_domian_hash_list[i];
+                } else {
+                    pre->next = find->next;
                 }
-                free(find);
+                tmp = find;
+                find = find->next;
+                free(tmp);
                 g_domain_num--;
-                find = pre->next;
             } else {
                 pre = find;
                 find = find->next;
