@@ -87,7 +87,8 @@ int rate_limit(uint32_t sip, rate_limit_type type, unsigned lcore_id) {
     if (rte_meter_srtcm_color_blind_check(&hnode->rl_meter[type], now, 1) == e_RTE_METER_RED) {
         ++hnode->exceeded_cnt;
         if (rte_meter_srtcm_color_blind_check(&hnode->rl_meter[RATE_LIMIT_TYPE_EXCEEDED_LOG], now, 1) != e_RTE_METER_RED) {
-            log_msg(LOG_ERR, "query from %s, %s rate limit exceeded %d, drop\n", inet_ntoa(*(struct in_addr *)&sip), rate_limit_type_str(type), hnode->exceeded_cnt);
+            log_msg(LOG_ERR, "query from %s, %s rate limit exceeded %d, in slave lcore %u, drop\n",
+                    inet_ntoa(*(struct in_addr *)&sip), rate_limit_type_str(type), hnode->exceeded_cnt, lcore_id);
             hnode->exceeded_cnt = 0;
         }
         return -1;
@@ -96,7 +97,7 @@ int rate_limit(uint32_t sip, rate_limit_type type, unsigned lcore_id) {
     return 0;
 }
 
-int rate_limit_init(unsigned lcore_id) {
+int rate_limit_init(uint32_t all_per_second, uint32_t fwd_per_second, uint32_t client_num, unsigned lcore_id) {
     int ret;
     uint32_t i;
     char name[RTE_HASH_NAMESIZE];
@@ -104,9 +105,9 @@ int rate_limit_init(unsigned lcore_id) {
     struct rte_meter_srtcm_params meter_params[RATE_LIMIT_TYPE_MAX];
     rate_limit_hnode tmp;
 
-    rl_ctrl[lcore_id].client_num = g_dns_cfg->comm.client_num;
-    rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_ALL] = g_dns_cfg->comm.all_per_second;
-    rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_FWD] = g_dns_cfg->comm.fwd_per_second;
+    rl_ctrl[lcore_id].client_num = client_num;
+    rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_ALL] = all_per_second;
+    rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_FWD] = fwd_per_second;
     rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_EXCEEDED_LOG] = EXCEEDED_LOG_PER_SECOND;
     if (rl_ctrl[lcore_id].client_num == 0 || (rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_ALL] == 0 && rl_ctrl[lcore_id].rl_ps[RATE_LIMIT_TYPE_FWD] == 0)) {
         log_msg(LOG_INFO, "rate limit is disabled!\n");
@@ -114,13 +115,15 @@ int rate_limit_init(unsigned lcore_id) {
     }
 
     if (rl_hmap[lcore_id] == NULL) {
-        hash_params.name = name,
-        hash_params.entries = rl_ctrl[lcore_id].client_num,
-        hash_params.key_len = sizeof(uint32_t),
-        hash_params.hash_func = DEFAULT_HASH_FUNC,
-        hash_params.hash_func_init_val = 0,
-        hash_params.socket_id = rte_socket_id(),
+        memset(&hash_params, 0, sizeof(struct rte_hash_parameters));
+        hash_params.name = name;
+        hash_params.entries = rl_ctrl[lcore_id].client_num;
+        hash_params.key_len = sizeof(uint32_t);
+        hash_params.hash_func = DEFAULT_HASH_FUNC;
+        hash_params.hash_func_init_val = 0;
+        hash_params.socket_id = rte_socket_id();
         snprintf(name, sizeof(name), "rl_hmap_%u", lcore_id);
+
         rl_hmap[lcore_id] = rte_hash_create(&hash_params);
         if (rl_hmap[lcore_id] == NULL) {
             log_msg(LOG_ERR, "Failed to create hash table: %s!\n", name);
@@ -140,6 +143,7 @@ int rate_limit_init(unsigned lcore_id) {
     memset(&tmp, 0, sizeof(tmp));
     for (i = 0; i < RATE_LIMIT_TYPE_MAX; ++i) {
         if (rl_ctrl[lcore_id].rl_ps[i]) {
+            memset(&meter_params[i], 0, sizeof(struct rte_meter_srtcm_params));
             meter_params[i].cir = rl_ctrl[lcore_id].rl_ps[i];
             meter_params[i].cbs = rl_ctrl[lcore_id].rl_ps[i];
             meter_params[i].ebs = rl_ctrl[lcore_id].rl_ps[i] / 2;
@@ -168,11 +172,11 @@ void rate_limit_uninit(unsigned lcore_id) {
     }
 }
 
-int rate_limit_reload(unsigned lcore_id) {
-    if (rl_ctrl[lcore_id].client_num != g_dns_cfg->comm.client_num) {
+int rate_limit_reload(uint32_t all_per_second, uint32_t fwd_per_second, uint32_t client_num, unsigned lcore_id) {
+    if (rl_ctrl[lcore_id].client_num != client_num) {
         rate_limit_uninit(lcore_id);
     }
 
-    rate_limit_init(lcore_id);
+    rate_limit_init(all_per_second, fwd_per_second, client_num, lcore_id);
     return 0;
 }

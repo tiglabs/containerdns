@@ -75,6 +75,15 @@ static struct rte_eth_conf port_conf_rss = {
     },
 };
 
+int netdev_mode_parse(const char *entry) {
+    printf("netdev_mode_parse mode: %s.\n", entry);
+    if (strcasecmp(entry, "rss") == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
 static char *flowtype_to_str(uint16_t flow_type) {
     struct flow_type_info {
         char str[32];
@@ -219,6 +228,7 @@ static void kdns_port_init(uint8_t port_id) {
     uint16_t q;
     struct rte_eth_conf conf;
 
+    int mode = g_dns_cfg->netdev.mode;
     uint16_t nb_rx_q = g_dns_cfg->netdev.rxq_num;
     uint16_t nb_tx_q = g_dns_cfg->netdev.txq_num;
     uint16_t nb_rx_desc = g_dns_cfg->netdev.rxq_desc_num;
@@ -232,7 +242,7 @@ static void kdns_port_init(uint8_t port_id) {
     }
     log_msg(LOG_INFO, "Initialising port(%u), rx queues(%u) desc(%u), tx queues(%u) desc(%u) ...\n", port_id, nb_rx_q, nb_rx_desc, nb_tx_q, nb_tx_desc);
 
-    if (strcmp(g_dns_cfg->netdev.mode, "rss") == 0) {
+    if (mode == 0) {
         memcpy(&conf, &port_conf_rss, sizeof(conf));
     } else {
         memcpy(&conf, &port_conf, sizeof(conf));
@@ -300,6 +310,7 @@ static int kni_change_mtu(uint8_t port_id, unsigned new_mtu) {
     int ret;
     struct rte_eth_conf conf;
 
+    int mode = g_dns_cfg->netdev.mode;
     uint16_t nb_rx_q = g_dns_cfg->netdev.rxq_num;
     uint16_t nb_tx_q = g_dns_cfg->netdev.txq_num;
 
@@ -312,7 +323,7 @@ static int kni_change_mtu(uint8_t port_id, unsigned new_mtu) {
     /* Stop specific port */
     rte_eth_dev_stop(port_id);
 
-    if (strcmp(g_dns_cfg->netdev.mode, "rss") == 0) {
+    if (mode == 0) {
         memcpy(&conf, &port_conf_rss, sizeof(conf));
     } else {
         memcpy(&conf, &port_conf, sizeof(conf));
@@ -358,7 +369,7 @@ static int kdns_kni_init(uint8_t port_id) {
     struct rte_eth_dev_info dev_info;
 
     unsigned nb_mbuf = g_dns_cfg->netdev.kni_mbuf_num;
-    char *kni_name = g_dns_cfg->netdev.name_prefix;
+    char *kni_name = g_dns_cfg->netdev.kni_name_prefix;
 
     kni_mbuf_pool = rte_pktmbuf_pool_create("kni_mbuf_pool", nb_mbuf, MBUF_CACHE_DEF, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_eth_dev_socket_id(port_id));
     if (kni_mbuf_pool == NULL) {

@@ -93,9 +93,9 @@ static int do_view_tree_insert(view_tree_t *tree, uint8_t *key, size_t nbits, ch
 
     view_node_t *node = do_view_tree_get(tree, key, nbits, CREATE);
     if (node->view_data != VIEW_NULL_VALUE) {
-        log_msg(LOG_ERR, "warning: insert duplicate view tree node!\n");
+        log_msg(LOG_INFO, "warning: insert duplicate view tree node!\n");
         free(view_data);
-        return -1;
+        return 0;
     }
 
     memcpy(view_data->cidrs, pcidr, strlen(pcidr));

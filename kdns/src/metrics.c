@@ -41,20 +41,15 @@ typedef struct metrics_domain{
 	uint64_t firstQueryTime ;// unix time us
 }metrics_domain_clientIp_st;
 
-
-extern struct dns_config *g_dns_cfg;
-
 static hashMap *g_metrics_fwd_domains = NULL;
 static hashMap *g_metrics_fwd_domains_client = NULL;
-
 
 static json_t * json_metrics_fwd_domains = NULL; 
 static json_t * json_metrics_fwd_clieintIp = NULL; 
 
 static rte_rwlock_t metrics_lock;
 
-static char * g_dns_host_name = NULL;
-
+static char *g_dns_host_name = NULL;
 
 uint64_t time_now_usec(void){
     struct timeval tv;
@@ -301,7 +296,16 @@ void* metrics_domains_clientIp_get( __attribute__((unused)) struct connection_in
     return (void* )str_ret;
 }
 
-void fwd_metrics_init(void){
+int metrics_host_reload(char *host_name) {
+    char *tmp = g_dns_host_name;
+    g_dns_host_name = strdup(host_name);
+    if (tmp) {
+        free(tmp);
+    }
+    return 0;
+}
+
+void fwd_metrics_init(void) {
     g_metrics_fwd_domains = hmap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain,
         metrics_check_equal, metrics_domain_query, metrics_domian_expired_check, metrics_domain_query_all_and_reset); 
     g_metrics_fwd_domains_client = hmap_create(METRICS_HASH_SIZE, METRICS_LOCK_SIZE, elfHashDomain,

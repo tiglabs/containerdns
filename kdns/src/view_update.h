@@ -32,10 +32,6 @@ void view_query_slave_process(struct query *query, unsigned slave_lcore);
 
 void view_query_master_process(struct query *query);
 
-void view_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore);
-
-void view_msg_master_process(ctrl_msg *msg);
-
 void view_master_init(void);
 
 #endif

@@ -59,6 +59,8 @@ struct net_device {
     struct netif_queue_conf l_netif_queue_conf[RTE_MAX_LCORE];
 };
 
+int netdev_mode_parse(const char *entry);
+
 struct netif_queue_conf *netif_queue_conf_get(uint16_t lcore_id);
 
 int kdns_netdev_init(void);

@@ -238,6 +238,7 @@ void domain_store_close(struct  domain_store* db);
 void domain_store_read_zonefile(struct kdns*  kdns, struct zone* zone);
 void apex_rrset_checks(rrset_type* rrset,domain_type* domain);
 zone_type* domain_store_zone_create(domain_store_type* db, const domain_name_st* dname);
+void delete_zone_rrs(domain_store_type* db, zone_type* zone);
 void domain_store_zone_delete(domain_store_type* db, zone_type* zone);
 
 static inline int

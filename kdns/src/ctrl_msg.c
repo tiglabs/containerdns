@@ -13,19 +13,19 @@
 #include <rte_prefetch.h>
 
 #include "kdns.h"
-#include "netdev.h"
 #include "ctrl_msg.h"
-#include "dns-conf.h"
-#include "kdns-adap.h"
-#include "rate_limit.h"
-#include "domain_update.h"
-#include "view_update.h"
-#include "process.h"
 
 #define CTRL_RING_SZ        (65536)
 
+struct ctrl_msg_manage {
+    int ctrl_flag[CTRL_MSG_TYPE_MAX];
+    ctrl_msg_master_cb master_cb[CTRL_MSG_TYPE_MAX];
+    ctrl_msg_slave_cb slave_cb[CTRL_MSG_TYPE_MAX];
+};
+
 static unsigned master_lcore;
 static struct rte_ring *ctrl_msg_ring[MAX_CORES];
+static struct ctrl_msg_manage ctrl_msg_mt;
 
 static int ctrl_msg_ingress(struct rte_ring *ring, void **msg, uint16_t msg_cnt) {
     uint16_t nb_tx;
@@ -60,24 +60,16 @@ uint16_t ctrl_msg_slave_process(unsigned slave_lcore) {
     }
 
     for (i = 0; i < nb_rx; ++i) {
-        switch (msg[i]->type) {
-        case CTRL_MSG_TYPE_DOMAIN:
-            domain_msg_slave_process(msg[i], slave_lcore);
-            break;
-        case CTRL_MSG_TYPE_VIEW:
-            view_msg_slave_process(msg[i], slave_lcore);
-            break;
-        case CTRL_MSG_TYPE_TO_KNI:
-            log_msg(LOG_ERR, "unexpected msg CTRL_MSG_TYPE_TO_KNI on slave_lcore %u\n", slave_lcore);
-            free(msg[i]);
-            break;
-        case CTRL_MSG_TYPE_TO_TX:
-            tx_msg_slave_process(msg[i], slave_lcore);
-            break;
-        default:
+        if (msg[i]->type < 0 || msg[i]->type >= CTRL_MSG_TYPE_MAX) {
             log_msg(LOG_ERR, "unknow msg type %d on slave_lcore %u\n", msg[i]->type, slave_lcore);
             free(msg[i]);
-            break;
+            continue;
+        }
+        if (ctrl_msg_mt.slave_cb[msg[i]->type]) {
+            ctrl_msg_mt.slave_cb[msg[i]->type](msg[i], slave_lcore);
+        } else {
+            log_msg(LOG_ERR, "unexpected msg %d on slave_lcore %u\n", msg[i]->type, slave_lcore);
+            free(msg[i]);
         }
     }
     return nb_rx;
@@ -97,7 +89,11 @@ uint16_t ctrl_msg_master_process(void) {
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {
         nb_copy = 0;
         for (i = 0; i < nb_rx; ++i) {
-            if (msg[i]->type == CTRL_MSG_TYPE_DOMAIN || msg[i]->type == CTRL_MSG_TYPE_VIEW) {
+            if (msg[i]->type < 0 || msg[i]->type >= CTRL_MSG_TYPE_MAX) {
+                log_msg(LOG_ERR, "unknow msg type %d on master_lcore\n", msg[i]->type);
+                continue;
+            }
+            if (ctrl_msg_mt.ctrl_flag[msg[i]->type] & CTRL_MSG_FLAG_MASTER_SYNC_SLAVE) {
                 msg_copy[nb_copy] = xalloc_zero(msg[i]->len);
                 memcpy(msg_copy[nb_copy], msg[i], msg[i]->len);
                 ++nb_copy;
@@ -109,28 +105,32 @@ uint16_t ctrl_msg_master_process(void) {
             break;
         }
     }
+
     for (i = 0; i < nb_rx; ++i) {
-        switch (msg[i]->type) {
-        case CTRL_MSG_TYPE_DOMAIN:
-            domain_msg_master_process(msg[i]);
-            break;
-        case CTRL_MSG_TYPE_VIEW:
-            view_msg_master_process(msg[i]);
-            break;
-        case CTRL_MSG_TYPE_TO_KNI:
-            kni_msg_master_process(msg[i]);
-            break;
-        case CTRL_MSG_TYPE_TO_TX:
-            log_msg(LOG_ERR, "unexpected msg CTRL_MSG_TYPE_TO_TX on master_lcore\n");
-            free(msg[i]);
-            break;
-        default:
+        if (msg[i]->type < 0 || msg[i]->type >= CTRL_MSG_TYPE_MAX) {
             log_msg(LOG_ERR, "unknow msg type %d on master_lcore\n", msg[i]->type);
             free(msg[i]);
-            break;
+            continue;
+        }
+        if (ctrl_msg_mt.master_cb[msg[i]->type]) {
+            ctrl_msg_mt.master_cb[msg[i]->type](msg[i]);
+        } else {
+            log_msg(LOG_ERR, "unexpected msg %d on master_lcore\n", msg[i]->type);
+            free(msg[i]);
         }
     }
     return nb_rx;
+}
+
+int ctrl_msg_reg(ctrl_msg_type type, int ctrl_flag, ctrl_msg_master_cb master_cb, ctrl_msg_slave_cb slave_cb) {
+    if (type < 0 || type >= CTRL_MSG_TYPE_MAX) {
+        log_msg(LOG_ERR, "unknow reg ctrl msg type: %d\n", type);
+        return -1;
+    }
+    ctrl_msg_mt.ctrl_flag[type] = ctrl_flag;
+    ctrl_msg_mt.master_cb[type] = master_cb;
+    ctrl_msg_mt.slave_cb[type] = slave_cb;
+    return 0;
 }
 
 void ctrl_msg_init(void) {
