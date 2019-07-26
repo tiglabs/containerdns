@@ -1,13 +1,8 @@
 # ContainerDNS
 
 ## Introduction
-ContainerDNS works as an internal DNS server for k8s cluster. It is based on DNS library : https://github.com/miekg/dns. containerdns-kubeapi will monitor 
-the services in k8s cluster, when the service is created and has been assigned with external ips, 
-the user(docker)in cluster can access the service with the domain.
-When the domain has multiple ips, the containerdns will choose one actived for the user randomly, 
-it seems like a load balancer.
-Also the containerdns offer "session persistence", that means we query one domain from one user ip,
-then the user access the domain later, the user will get the same service ip.   
+ContainerDNS works as an internal DNS server for a Kubernetes cluster. 
+
 
 ## Components
 * `containerdns`: the main service to offer DNS query.
@@ -16,11 +11,17 @@ then the user access the domain later, the user will get the same service ip.
 * `containerdns-apicmd`: it is a shell cmd for user to query\update domain record, it is based on containerdns-kubeapi.
 * `etcd`: used to store DNS information, etcd v3 api is used.
 
+It is based on the DNS library https://github.com/miekg/dns. 
+
+
 ## Feature:
-* a full cached DNS records
+* fully-cached DNS records
 * backend ip automatic removed when it not avaliable
 * support multiple domain suffix 
 * better performance and less jitter
+* load balancing - when a domain has multiple IPs, ContainerDNS chooses an active one randoml
+* session persistence - when a domain name is accessed multiple times from the same source, the same service IP is returned.
+
 ## Design Architecture
   ![image](https://github.com/tiglabs/containerdns/blob/master/images/ContainerDNS_design_architecture.png)
 
@@ -254,7 +255,8 @@ Improve ContainerDNS throughput by leveraging the DPDK technology to reach nearl
 
 ## Reference
 
-Reference to cite when you use ContainerDNS in a paper or research report: "A High Performance, Scalable DNS Service for Very Large Scale Container Cloud Platforms", in Middleware'18
+Reference to cite when you use ContainerDNS in a paper or technical report: "Haifeng Liu, Shugang Chen, Yongcheng Bao, Wanli Yang, and Yuan Chen, Wei Ding, Huasong Shan. A High Performance, Scalable DNS Service for Very Large Scale Container Cloud Platforms. In 19th International Middleware Conference Industry, December 10–14, 2018, Rennes, France. "
+
 
 
 
