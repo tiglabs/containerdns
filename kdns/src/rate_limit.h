@@ -10,11 +10,11 @@ typedef enum {
 
 int rate_limit(uint32_t sip, rate_limit_type type, unsigned lcore_id);
 
-int rate_limit_init(unsigned lcore_id);
+int rate_limit_init(uint32_t all_per_second, uint32_t fwd_per_second, uint32_t client_num, unsigned lcore_id);
 
 void rate_limit_uninit(unsigned lcore_id);
 
-int rate_limit_reload(unsigned lcore_id);
+int rate_limit_reload(uint32_t all_per_second, uint32_t fwd_per_second, uint32_t client_num, unsigned lcore_id);
 
 #endif  /* _RATE_LIMIT_H_ */
 

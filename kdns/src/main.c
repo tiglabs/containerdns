@@ -74,7 +74,7 @@ static void signal_handler(int sig) {
         break;
     case SIGHUP:
         log_msg(LOG_INFO, "Program hanged up @@@.");
-        config_reload_proc(dns_cfgfile);
+        dns_config_reload(dns_cfgfile, dns_procname);
         return;
     case SIGPIPE:
         log_msg(LOG_ERR, "SIGPIPE @@@.");
@@ -154,23 +154,21 @@ static int set_thread_affinity(void) {
 
 int main(int argc, char **argv) {
     int i;
-    char *dpdk_argv[DPDK_ARG_MAX_NUM];
+    char *dpdk_argv[DPDK_MAX_ARG_NUM];
 
     if (check_pid(PIDFILE) < 0) {
         exit(0);
     }
     write_pid(PIDFILE);
 
-    dns_procname = parse_progname(argv[0]);
     parse_args(argc, argv);
-    config_file_load(dns_cfgfile, dns_procname);
+    dns_procname = parse_progname(argv[0]);
+    dns_config_load(dns_cfgfile, dns_procname);
 
-    log_open(g_dns_cfg->comm.log_file);
-
-    for (i = 0; i < g_dns_cfg->dpdk.argc; i++) {
-        dpdk_argv[i] = strdup(g_dns_cfg->dpdk.argv[i]);
+    for (i = 0; i < g_dns_cfg->eal.argc; i++) {
+        dpdk_argv[i] = strdup(g_dns_cfg->eal.argv[i]);
     }
-    if (rte_eal_init(g_dns_cfg->dpdk.argc, dpdk_argv) < 0) {
+    if (rte_eal_init(g_dns_cfg->eal.argc, dpdk_argv) < 0) {
         log_msg(LOG_ERR, "EAL init failed.\n");
         exit(-1);
     }
@@ -188,8 +186,8 @@ int main(int argc, char **argv) {
 
     ctrl_msg_init();
     fwd_server_init();
-    tcp_process_init(g_dns_cfg->netdev.kni_vip);
-    local_udp_process_init(g_dns_cfg->netdev.kni_vip);
+    tcp_process_init();
+    local_udp_process_init();
 
     unsigned lcore_id;
     RTE_LCORE_FOREACH_SLAVE(lcore_id) {

@@ -6,13 +6,9 @@
 #define DNS_STATUS_INIT    "init"
 #define DNS_STATUS_RUN     "running"
 
-void domian_info_exchange_run(int port);
+void domian_info_exchange_run(uint16_t web_port, int ssl_enable, char *key_pem_file, char *cert_pem_file);
 
-void domain_list_del_zone(char *zone);
-
-void domain_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore);
-
-void domain_msg_master_process(ctrl_msg *msg);
+int domain_list_del_zones(char *del_zones);
 
 void domain_info_master_init(void);
 

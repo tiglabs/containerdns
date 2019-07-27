@@ -27,7 +27,7 @@
 #include "kdns-adap.h"
 #include "local_udp_process.h"
 
-extern domain_fwd_addrs_ctrl g_fwd_addrs_ctrl;
+extern domain_fwd_ctrl g_fwd_ctrl;
 
 rte_rwlock_t local_udp_lock;
 struct kdns local_udp_kdns;
@@ -83,14 +83,14 @@ static int local_udp_process_forward(int sfd, char *buf, int buf_len, struct soc
     char recv_buf[EDNS_MAX_MESSAGE_LEN];
 
     pthread_rwlock_rdlock(&__fwd_lock);
-    fwd_mode = g_fwd_addrs_ctrl.mode;
-    fwd_timeout = g_fwd_addrs_ctrl.timeout;
-    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain, &g_fwd_addrs_ctrl);
+    fwd_mode = g_fwd_ctrl.mode;
+    fwd_timeout = g_fwd_ctrl.timeout;
+    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain, &g_fwd_ctrl);
     servers_len = fwd_addrs->servers_len;
     memcpy(&server_addrs, &fwd_addrs->server_addrs, sizeof(fwd_addrs->server_addrs));
     pthread_rwlock_unlock(&__fwd_lock);
 
-    if (fwd_mode == FWD_MODE_DISABLE) {
+    if (fwd_mode == FWD_MODE_TYPE_DISABLE) {
         return 0;
     }
 
@@ -193,9 +193,12 @@ static void *thread_local_udp_process(void *arg) {
     }
 }
 
-int local_udp_process_init(char *ip) {
+int local_udp_process_init(void) {
+    char *ip = g_dns_cfg->netdev.kni_vip;
+    char *zones = g_dns_cfg->comm.zones;
+
     rte_rwlock_init(&local_udp_lock);
-    kdns_prepare_init(&local_udp_kdns, &local_udp_query);
+    kdns_prepare_init(&local_udp_kdns, &local_udp_query, zones);
 
     pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
     pthread_create(thread_id, NULL, thread_local_udp_process, (void *)ip);
@@ -210,3 +213,10 @@ int local_udp_domian_databd_update(struct domin_info_update *update) {
     return ret;
 }
 
+int local_udp_zones_reload(char *del_zones, char *add_zones) {
+    //log_msg(LOG_INFO, "local udp reload zones: del: %s, add: %s.\n", del_zones, add_zones);
+    rte_rwlock_write_lock(&local_udp_lock);
+    int ret = kdns_zones_realod(&local_udp_kdns, del_zones, add_zones);
+    rte_rwlock_write_unlock(&local_udp_lock);
+    return ret;
+}

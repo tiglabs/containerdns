@@ -32,9 +32,7 @@
 #define PREFETCH_OFFSET     (3)
 #define UDP_PORT_53         (0x3500)    // port 53
 
-extern struct dns_config *g_dns_cfg;
-
-void tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
+static int tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
     ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
 
     struct netif_queue_conf *conf = netif_queue_conf_get(slave_lcore);
@@ -46,6 +44,7 @@ void tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
         } while (++cnts < mmsg->mbufs_cnts);
     }
     free(mmsg);
+    return 0;
 }
 
 static void tx_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
@@ -53,7 +52,7 @@ static void tx_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
     static unsigned kni_slave_lcore = 0;
 
     ctrl_mbufs_msg *msg = xalloc_zero(sizeof(ctrl_mbufs_msg));
-    msg->cmsg.type = CTRL_MSG_TYPE_TO_TX;
+    msg->cmsg.type = CTRL_MSG_TYPE_MBUF_TO_TX;
     msg->cmsg.len = sizeof(ctrl_mbufs_msg);
     msg->mbufs_cnts = rx_len;
     for (i = 0; i < rx_len; ++i) {
@@ -71,18 +70,19 @@ static void tx_msg_slave_ingress(struct rte_mbuf **mbufs, uint16_t rx_len) {
     }
 }
 
-void kni_msg_master_process(ctrl_msg *msg) {
+static int kni_msg_master_process(ctrl_msg *msg) {
     ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
 
     kni_egress(mmsg->mbufs, mmsg->mbufs_cnts);
     free(mmsg);
+    return 0;
 }
 
 static void kni_msg_master_ingress(struct rte_mbuf **mbufs, uint16_t rx_len, struct netif_queue_conf *conf) {
     uint16_t i;
 
     ctrl_mbufs_msg *msg = xalloc_zero(sizeof(ctrl_mbufs_msg));
-    msg->cmsg.type = CTRL_MSG_TYPE_TO_KNI;
+    msg->cmsg.type = CTRL_MSG_TYPE_MBUF_TO_KNI;
     msg->cmsg.len = sizeof(ctrl_mbufs_msg);
     msg->mbufs_cnts = rx_len;
     for (i = 0; i < rx_len; ++i) {
@@ -194,26 +194,30 @@ static int packet_process(struct rte_mbuf *pkt, struct netif_queue_conf *conf, u
 
 int process_slave(__attribute__((unused)) void *arg) {
     int i;
-    uint16_t rx_count, cp_count = 0;
+    uint16_t rx_count, ctrl_msg_count = 0;
     uint64_t now_tsc, prev_tsc, intvl_tsc;
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
+
+    char *zones = g_dns_cfg->comm.zones;
+    uint32_t all_per_second = g_dns_cfg->comm.all_per_second;
+    uint32_t fwd_per_second = g_dns_cfg->comm.fwd_per_second;
+    uint32_t client_num = g_dns_cfg->comm.client_num;
 
     now_tsc = rte_rdtsc();
     prev_tsc = now_tsc;
     intvl_tsc = rte_get_timer_hz() / 1000;  //1ms
 
-    kdns_init(lcore_id);
-    rate_limit_init(lcore_id);
+    kdns_init(zones, lcore_id);
+    rate_limit_init(all_per_second, fwd_per_second, client_num, lcore_id);
 
     struct netif_queue_conf *conf = netif_queue_conf_get(lcore_id);
     log_msg(LOG_INFO, "Starting slave on core %u: rx %u, tx %u\n", lcore_id, conf->rx_queue_id, conf->tx_queue_id);
     while (1) {
         now_tsc = rte_rdtsc();
-        if (cp_count || now_tsc - prev_tsc > intvl_tsc) {
+        if (ctrl_msg_count || now_tsc - prev_tsc > intvl_tsc) {
             prev_tsc = now_tsc;
-            config_reload_pre_core(lcore_id);
-            cp_count = ctrl_msg_slave_process(lcore_id);
+            ctrl_msg_count = ctrl_msg_slave_process(lcore_id);
         }
 
         rx_count = rte_eth_rx_burst(conf->port_id, conf->rx_queue_id, mbufs, NETIF_MAX_PKT_BURST);
@@ -293,15 +297,22 @@ int process_master(__attribute__((unused)) void *arg) {
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
     unsigned lcore_id = rte_lcore_id();
 
+    uint16_t web_port = g_dns_cfg->comm.web_port;
+    int ssl_enable = g_dns_cfg->comm.ssl_enable;
+    char *key_pem_file = g_dns_cfg->comm.key_pem_file;
+    char *cert_pem_file = g_dns_cfg->comm.cert_pem_file;
+
     domain_info_master_init();
     view_master_init();
 
-    domian_info_exchange_run(g_dns_cfg->comm.web_port);
+    ctrl_msg_reg(CTRL_MSG_TYPE_MBUF_TO_KNI, 0, kni_msg_master_process, NULL);
+    ctrl_msg_reg(CTRL_MSG_TYPE_MBUF_TO_TX, 0, NULL, tx_msg_slave_process);
+
+    domian_info_exchange_run(web_port, ssl_enable, key_pem_file, cert_pem_file);
 
     reset_master_affinity();
     log_msg(LOG_INFO, "Starting master on core %u\n", lcore_id);
     while (1) {
-        config_reload_pre_core(lcore_id);
         nb_ctrl = ctrl_msg_master_process();
 
         nb_kni = kni_ingress(mbufs, NETIF_MAX_PKT_BURST);

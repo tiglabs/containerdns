@@ -27,7 +27,7 @@
 #include "kdns-adap.h"
 #include "tcp_process.h"
 
-extern domain_fwd_addrs_ctrl g_fwd_addrs_ctrl;
+extern domain_fwd_ctrl g_fwd_ctrl;
 
 rte_rwlock_t tcp_lock;
 struct kdns tcp_kdns;
@@ -107,15 +107,15 @@ static int tcp_process_forward(int sfd, char *buf, int buf_len, struct sockaddr_
     char recv_buf[TCP_MAX_MESSAGE_LEN];
 
     pthread_rwlock_rdlock(&__fwd_lock);
-    fwd_mode = g_fwd_addrs_ctrl.mode;
-    fwd_timeout = g_fwd_addrs_ctrl.timeout;
-    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain, &g_fwd_addrs_ctrl);
+    fwd_mode = g_fwd_ctrl.mode;
+    fwd_timeout = g_fwd_ctrl.timeout;
+    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(domain, &g_fwd_ctrl);
     servers_len = fwd_addrs->servers_len;
     memcpy(&server_addrs, &fwd_addrs->server_addrs, sizeof(fwd_addrs->server_addrs));
     pthread_rwlock_unlock(&__fwd_lock);
 
     tcp_stats.dns_fwd_rcv_tcp++;
-    if (fwd_mode == FWD_MODE_DISABLE) {
+    if (fwd_mode == FWD_MODE_TYPE_DISABLE) {
         tcp_stats.dns_fwd_lost_tcp++;
         return 0;
     }
@@ -287,12 +287,23 @@ static void *thread_tcp_process(void *arg) {
     }
 }
 
-int tcp_process_init(char *ip) {
+int tcp_process_init(void) {
+    char *ip = g_dns_cfg->netdev.kni_vip;
+    char *zones = g_dns_cfg->comm.zones;
+
     rte_rwlock_init(&tcp_lock);
-    kdns_prepare_init(&tcp_kdns, &tcp_query);
+    kdns_prepare_init(&tcp_kdns, &tcp_query, zones);
 
     pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
     pthread_create(thread_id, NULL, thread_tcp_process, (void *)ip);
     pthread_setname_np(*thread_id, "kdns_tcp_proc");
     return 0;
+}
+
+int tcp_zones_reload(char *del_zones, char *add_zones) {
+    //log_msg(LOG_INFO, "tcp reload zones: del: %s, add: %s.\n", del_zones, add_zones);
+    rte_rwlock_write_lock(&tcp_lock);
+    int ret = kdns_zones_realod(&tcp_kdns, del_zones, add_zones);
+    rte_rwlock_write_unlock(&tcp_lock);
+    return ret;
 }

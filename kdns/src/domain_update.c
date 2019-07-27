@@ -19,6 +19,7 @@
 #include "forward.h"
 #include "hashMap.h"
 #include "metrics.h"
+#include "dns-conf.h"
 
 #define DOMAIN_HASH_SIZE    (0x3FFFF)
 
@@ -65,9 +66,10 @@ static void domain_list_operate(struct domin_info_update *msg, unsigned int hash
         }
     } else {
         if (find != NULL && pre != NULL) {
-            pre->next = find->next;
             if (find == g_domian_hash_list[hashId]) {
                 g_domian_hash_list[hashId] = find->next;
+            } else {
+                pre->next = find->next;
             }
             free(find);
             g_domain_num--;
@@ -79,6 +81,7 @@ static void domain_list_operate(struct domin_info_update *msg, unsigned int hash
 static void domain_list_del_pre_zone(char *zone_name) {
     struct domin_info_update *pre;
     struct domin_info_update *find;
+    struct domin_info_update *tmp;
 
     rte_rwlock_write_lock(&domian_list_lock);
     int i;
@@ -86,13 +89,16 @@ static void domain_list_del_pre_zone(char *zone_name) {
         pre = find = g_domian_hash_list[i];
         while (find) {
             if (strcmp(find->zone_name, zone_name) == 0) {
-                pre->next = find->next;
                 if (find == g_domian_hash_list[i]) {
                     g_domian_hash_list[i] = find->next;
+                    pre = g_domian_hash_list[i];
+                } else {
+                    pre->next = find->next;
                 }
-                free(find);
+                tmp = find;
+                find = find->next;
+                free(tmp);
                 g_domain_num--;
-                find = pre->next;
             } else {
                 pre = find;
                 find = find->next;
@@ -102,18 +108,22 @@ static void domain_list_del_pre_zone(char *zone_name) {
     rte_rwlock_write_unlock(&domian_list_lock);
 }
 
-void domain_list_del_zone(char *zones) {
+int domain_list_del_zones(char *zones) {
     char *name, *tmp;
-    char zoneTmp[ZONES_STR_LEN] = {0};
+    char zone_tmp[MAX_CONFIG_STR_LEN] = {0};
 
-    log_msg(LOG_INFO, "domain list del zones: %s.\n", zones);
+    //log_msg(LOG_INFO, "domain list del zones: %s.\n", zones);
+    if (strlen(zones) == 0) {
+        return 0;
+    }
 
-    memcpy(zoneTmp, zones, strlen(zones));
-    name = strtok_r(zoneTmp, ",", &tmp);
+    strncpy(zone_tmp, zones, sizeof(zone_tmp) - 1);
+    name = strtok_r(zone_tmp, ",", &tmp);
     while (name) {
         domain_list_del_pre_zone(name);
         name = strtok_r(0, ",", &tmp);
     }
+    return 0;
 }
 
 static void domain_info_update(struct domin_info_update *msg) {
@@ -124,10 +134,10 @@ static void domain_info_update(struct domin_info_update *msg) {
 }
 
 static int send_domain_msg_to_master(struct domin_info_update *msg) {
-    msg->cmsg.type = CTRL_MSG_TYPE_DOMAIN;
+    msg->cmsg.type = CTRL_MSG_TYPE_UPDATE_DOMAIN;
     msg->cmsg.len = sizeof(struct domin_info_update);
 
-    return ctrl_msg_master_ingress((void **)&msg, 1);
+    return ctrl_msg_master_ingress((void **)&msg, 1) == 1 ? 0 : -1;
 }
 
 static inline int ipv4_address_check(const char *str) {
@@ -760,8 +770,8 @@ static void *local_metrics_reset(__attribute__((unused)) struct connection_info_
     return (void *)post_ok;
 }
 
-void domian_info_exchange_run(int port) {
-    dins = webserver_new(port);
+void domian_info_exchange_run(uint16_t web_port, int ssl_enable, char *key_pem_file, char *cert_pem_file) {
+    dins = webserver_new(web_port);
     web_endpoint_add("POST", "/kdns/domain", dins, &domain_post);
     web_endpoint_add("POST", "/kdns/alldomains", dins, &domains_post_all);
     web_endpoint_add("GET", "/kdns/domain", dins, &domains_get);
@@ -797,25 +807,29 @@ void domian_info_exchange_run(int port) {
     web_endpoint_add("GET", "/kdns/forward/caches", dins, &fwd_caches_get);
     web_endpoint_add("DELETE", "/kdns/forward/caches", dins, &fwd_caches_delete);
 
-    webserver_run(dins);
+    webserver_run(dins, ssl_enable, key_pem_file, cert_pem_file);
     return;
 }
 
-void domain_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
-    domaindata_update(dpdk_dns[slave_lcore].db, (struct domin_info_update *)msg);
+static int domain_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
+    int ret = domaindata_update(dpdk_dns[slave_lcore].db, (struct domin_info_update *)msg);
     free(msg);
+    return ret;
 }
 
-void domain_msg_master_process(ctrl_msg *msg) {
+static int domain_msg_master_process(ctrl_msg *msg) {
     struct domin_info_update *update = (struct domin_info_update *)msg;
 
     tcp_domian_databd_update(update);
     local_udp_domian_databd_update(update);
     domain_info_update(update);
+    return 0;
 }
 
 void domain_info_master_init(void) {
     int i;
+
+    ctrl_msg_reg(CTRL_MSG_TYPE_UPDATE_DOMAIN, CTRL_MSG_FLAG_MASTER_SYNC_SLAVE, domain_msg_master_process, domain_msg_slave_process);
 
     kdns_status = strdup(DNS_STATUS_INIT);
     rte_rwlock_init(&domian_list_lock);

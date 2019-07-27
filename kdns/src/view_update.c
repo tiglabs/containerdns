@@ -16,10 +16,10 @@ static view_tree_t *view_master_tree;
 static rte_rwlock_t view_master_lock;
 
 static int send_view_msg_to_master(struct view_info_update *msg) {
-    msg->cmsg.type = CTRL_MSG_TYPE_VIEW;
+    msg->cmsg.type = CTRL_MSG_TYPE_UPDATE_VIEW;
     msg->cmsg.len = sizeof(struct view_info_update);
 
-    return ctrl_msg_master_ingress((void **)&msg, 1);
+    return ctrl_msg_master_ingress((void **)&msg, 1) == 1 ? 0 : -1;
 }
 
 static struct view_info_update *do_view_parse(enum view_action action, json_t *json_data) {
@@ -228,19 +228,23 @@ void view_query_master_process(struct query *query) {
     rte_rwlock_read_unlock(&view_master_lock);
 }
 
-void view_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
-    do_view_msg_update(dpdk_dns[slave_lcore].db->viewtree, (struct view_info_update *)msg);
+static int view_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
+    int ret = do_view_msg_update(dpdk_dns[slave_lcore].db->viewtree, (struct view_info_update *)msg);
     free(msg);
+    return ret;
 }
 
-void view_msg_master_process(ctrl_msg *msg) {
+static int view_msg_master_process(ctrl_msg *msg) {
     rte_rwlock_write_lock(&view_master_lock);
-    do_view_msg_update(view_master_tree, (struct view_info_update *)msg);
+    int ret = do_view_msg_update(view_master_tree, (struct view_info_update *)msg);
     rte_rwlock_write_unlock(&view_master_lock);
     free(msg);
+    return ret;
 }
 
 void view_master_init(void) {
+    ctrl_msg_reg(CTRL_MSG_TYPE_UPDATE_VIEW, CTRL_MSG_FLAG_MASTER_SYNC_SLAVE, view_msg_master_process, view_msg_slave_process);
+
     rte_rwlock_init(&view_master_lock);
     view_master_tree = view_tree_create();
 }

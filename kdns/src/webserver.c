@@ -5,7 +5,6 @@
 
 #include "webserver.h"
 #include "util.h"
-#include "dns-conf.h"
 
 
 
@@ -240,15 +239,15 @@ static char *get_ca_file(char *fname)
 } 
 
 
-int webserver_run(struct web_instance * instance)
+int webserver_run(struct web_instance *instance, int ssl_enable, char *key_pem_file, char *cert_pem_file)
 {
   //  int flags = MHD_USE_SELECT_INTERNALLY | MHD_USE_POLL | MHD_USE_DEBUG | MHD_USE_SSL ;
   int flags = MHD_USE_THREAD_PER_CONNECTION | MHD_USE_POLL | MHD_USE_DEBUG |MHD_USE_INTERNAL_POLLING_THREAD;
-  if (g_dns_cfg->comm.ssl_enable == 1){
+  if (ssl_enable == 1){
       flags |= MHD_USE_SSL ;
 
-      char *key_pem =  get_ca_file(g_dns_cfg->comm.key_pem_file);
-      char *cert_pem =  get_ca_file(g_dns_cfg->comm.cert_pem_file);
+      char *key_pem =  get_ca_file(key_pem_file);
+      char *cert_pem =  get_ca_file(cert_pem_file);
     
 
       instance->mhd_daemon = MHD_start_daemon(flags, instance->port,

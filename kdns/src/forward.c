@@ -54,7 +54,7 @@
 
 typedef struct {
     uint16_t qtype;
-    char domain_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char domain_name[MAXDOMAINLEN];
     char data[EDNS_MAX_MESSAGE_LEN];
     int data_len;
     time_t time_expired;
@@ -76,7 +76,7 @@ typedef struct {
     uint32_t src_addr;
     uint16_t id;
     uint16_t qtype;
-    char domain_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char domain_name[MAXDOMAINLEN];
 
     uint32_t ctrl_flag;
     uint64_t query_time;
@@ -117,8 +117,8 @@ typedef struct {
 } fwd_cnode_query;
 
 pthread_rwlock_t __fwd_lock;
-domain_fwd_addrs_ctrl fwd_addrs_ctrl[MAX_CORES];
-domain_fwd_addrs_ctrl g_fwd_addrs_ctrl;
+domain_fwd_ctrl fwd_ctrl[MAX_CORES];
+domain_fwd_ctrl g_fwd_ctrl;
 
 static struct rte_ring *g_fwd_query_ring;
 static struct rte_ring *g_fwd_response_ring;
@@ -152,21 +152,21 @@ int fwd_query_enqueue(struct rte_mbuf *pkt, uint32_t src_addr, uint16_t id, uint
     unsigned cid = rte_lcore_id();
 
     rte_atomic64_inc(&dns_fwd_rcv);
-    if (fwd_addrs_ctrl[cid].mode == FWD_MODE_DISABLE) {
+    if (fwd_ctrl[cid].mode == FWD_MODE_TYPE_DISABLE) {
         rte_atomic64_inc(&dns_fwd_lost);
         rte_pktmbuf_free(pkt);
         return 0;
     }
 
-    query = xalloc_array_zero(1, sizeof(fwd_qnode));
+    query = xalloc_zero(sizeof(fwd_qnode));
     query->pkt = pkt;
     query->src_addr = src_addr;
     query->id = id;
     query->qtype = qtype;
-    strcpy(query->domain_name, domain_name);
-    if (fwd_addrs_ctrl[cid].mode == FWD_MODE_DIRECT) {
+    strncpy(query->domain_name, domain_name, sizeof(query->domain_name) - 1);
+    if (fwd_ctrl[cid].mode == FWD_MODE_TYPE_DIRECT) {
         query->ctrl_flag |= FWD_CTRL_FLAG_DIRECT;
-    } else if (fwd_addrs_ctrl[cid].mode == FWD_MODE_CACHE) {
+    } else if (fwd_ctrl[cid].mode == FWD_MODE_TYPE_CACHE) {
         query->ctrl_flag |= FWD_CTRL_FLAG_CACHE;
     }
 
@@ -174,8 +174,8 @@ int fwd_query_enqueue(struct rte_mbuf *pkt, uint32_t src_addr, uint16_t id, uint
     query->query_time = time_now_usec();
 #endif
 
-    query->timeout = fwd_addrs_ctrl[cid].timeout;
-    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(query->domain_name, &fwd_addrs_ctrl[cid]);
+    query->timeout = fwd_ctrl[cid].timeout;
+    domain_fwd_addrs *fwd_addrs = fwd_addrs_find(query->domain_name, &fwd_ctrl[cid]);
     query->current_server = 0;
     query->servers_len = fwd_addrs->servers_len;
     memcpy(&query->server_addrs, &fwd_addrs->server_addrs, sizeof(fwd_addrs->server_addrs));
@@ -514,12 +514,12 @@ static int fwd_query_detect(fwd_manage *manage, fwd_qnode *query) {
                 query->domain_name, query->qtype, inet_ntoa(*(struct in_addr *)&(query->src_addr)));
         return -1;
     }
-    new_query = xalloc_array_zero(1, sizeof(fwd_qnode));
+    new_query = xalloc_zero(sizeof(fwd_qnode));
     new_query->pkt = new_pkt;
     new_query->src_addr = query->src_addr;
     new_query->id = query->id;
     new_query->qtype = query->qtype;
-    strcpy(new_query->domain_name, query->domain_name);
+    strncpy(new_query->domain_name, query->domain_name, sizeof(new_query->domain_name) - 1);
 
     new_query->ctrl_flag = query->ctrl_flag | FWD_CTRL_FLAG_DETECT;
     new_query->query_time = query->query_time;
@@ -754,7 +754,7 @@ static void fwd_cache_update(fwd_qnode *qnode, char *cache_data, int cache_data_
     new_node->qtype = qnode->qtype;
     new_node->data_len = cache_data_len;
     new_node->time_expired = time(NULL) + 60;
-    strcpy(new_node->domain_name, qnode->domain_name);
+    strncpy(new_node->domain_name, qnode->domain_name, sizeof(new_node->domain_name) - 1);
     memcpy(new_node->data, cache_data, cache_data_len);
 
     fwd_cache_check check;
@@ -879,20 +879,23 @@ void *fwd_caches_delete(__attribute__((unused))struct connection_info_struct *co
     return (void *)post_ok;
 }
 
-static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs) {
+static int fwd_addrs_parse(const char *domain_suffix, char *addrs, domain_fwd_addrs *fwd_addrs) {
     struct addrinfo *addr_ip;
     struct addrinfo hints;
     char *token, *tmp;
-    char buf[512];
-    char dns_addrs[512] = {0};
+    char buf[MAX_CONFIG_STR_LEN];
+    char dns_addrs[MAX_CONFIG_STR_LEN] = {0};
     const char *def_port = "53";
     int i = 0, r = 0;
 
-    strncpy(dns_addrs, addrs, MIN(sizeof(dns_addrs), strlen(addrs)));
-    domain_fwd_addrs *fwd_addrs = xalloc_array_zero(1, sizeof(domain_fwd_addrs));
+    if (domain_suffix == NULL || strlen(domain_suffix) == 0 || addrs == NULL || strlen(addrs) == 0) {
+        return -1;
+    }
+
     fwd_addrs->servers_len = 1;
     memcpy(fwd_addrs->domain_name, domain_suffix, strlen(domain_suffix));
 
+    strncpy(dns_addrs, addrs, sizeof(dns_addrs) - 1);
     char *pch = strchr(dns_addrs, ',');
     while (pch != NULL) {
         fwd_addrs->servers_len++;
@@ -902,8 +905,6 @@ static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs)
         log_msg(LOG_INFO, "domain_suffix :%s remote addr :%s, fwd addrs %d truncate to %d\n", domain_suffix, dns_addrs, fwd_addrs->servers_len, FWD_MAX_ADDRS);
         fwd_addrs->servers_len = FWD_MAX_ADDRS;
     }
-
-    log_msg(LOG_INFO, "domain_suffix :%s remote addr :%s\n", domain_suffix, dns_addrs);
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -922,7 +923,7 @@ static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs)
         }
         if (0 != (r = getaddrinfo(buf, port, &hints, &addr_ip))) {
             log_msg(LOG_ERR, "err getaddrinfo, errno=%d, errinfo=%s\n", errno, strerror(errno));
-            exit(-1);
+            return -1;
         }
         fwd_addrs->server_addrs[i].addr = *(addr_ip->ai_addr);
         fwd_addrs->server_addrs[i].addrlen = addr_ip->ai_addrlen;
@@ -930,212 +931,150 @@ static domain_fwd_addrs *fwd_addrs_parse(const char *domain_suffix, char *addrs)
         i++;
         token = strtok_r(0, ",", &tmp);
     }
-    return fwd_addrs;
+    return 0;
 }
 
-static domain_fwd_addrs **fwd_zones_addrs_parse(char *addrs, int *fwd_zone_num) {
-    int zone_idx = 1;
+static domain_fwd_addrs *fwd_def_addrs_parse(char *addrs) {
+    domain_fwd_addrs *fwd_def_addrs = xalloc_zero(sizeof(domain_fwd_addrs));
+    if (fwd_addrs_parse("defulat.zone", addrs, fwd_def_addrs) < 0) {
+        free(fwd_def_addrs);
+        return NULL;
+    }
+    return fwd_def_addrs;
+}
+
+static domain_fwd_addrs *fwd_zones_addrs_parse(char *addrs, int *fwd_zone_num) {
+    int zone_idx = 0, zone_num;
     char *zone_info = NULL;
-    char buf[512];
-    char zone_addr[512];
-    char fwd_addrs[512] = {0};
-    char zone_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char buf[MAX_CONFIG_STR_LEN];
+    char zone_addr[MAX_CONFIG_STR_LEN];
+    char fwd_addrs[MAX_CONFIG_STR_LEN] = {0};
+    char zone_name[MAXDOMAINLEN];
     char *tmp_ptr;
 
+    *fwd_zone_num = 0;
     if (!addrs || strlen(addrs) == 0) {
         return NULL;
     }
-    strncpy(fwd_addrs, addrs, MIN(sizeof(fwd_addrs), strlen(addrs)));
 
-    log_msg(LOG_INFO, "fwd_zones_addrs_parse fwd_addrs %s\n", fwd_addrs);
+    zone_num = 1;
+    strncpy(fwd_addrs, addrs, sizeof(fwd_addrs) - 1);
     char *pch = strchr(fwd_addrs, '%');
     while (pch != NULL) {
-        zone_idx++;
+        zone_num++;
         pch = strchr(pch + 1, '%');
     }
 
-    *fwd_zone_num = zone_idx;
-    domain_fwd_addrs **tmp_fwd_addrs = xalloc_array_zero(zone_idx, sizeof(domain_fwd_addrs *));
+    domain_fwd_addrs *fwd_zones_addrs = xalloc_array_zero(zone_num, sizeof(domain_fwd_addrs));
     zone_idx = 0;
     zone_info = strtok_r(fwd_addrs, "%", &tmp_ptr);
     while (zone_info) {
         char *pos;
         memset(buf, 0, sizeof(buf));
-        memset(zone_name, 0, FWD_MAX_DOMAIN_NAME_LEN);
+        memset(zone_name, 0, sizeof(zone_name));
         memset(zone_addr, 0, sizeof(zone_addr));
         strncpy(buf, zone_info, sizeof(buf) - 1);
         pos = (strrchr(buf, '@'));
         if (pos) {
-            if (pos - buf >= FWD_MAX_DOMAIN_NAME_LEN) {
-                log_msg(LOG_ERR, "domain name legth greater than %d\n", FWD_MAX_DOMAIN_NAME_LEN);
-                exit(-1);
+            if (pos - buf >= MAXDOMAINLEN) {
+                log_msg(LOG_ERR, "domain name legth greater than %d\n", MAXDOMAINLEN);
+                free(fwd_zones_addrs);
+                return NULL;
             }
 
             memcpy(zone_name, buf, pos - buf);
             memcpy(zone_addr, pos + 1, strlen(buf) + buf - pos - 1);
-            tmp_fwd_addrs[zone_idx] = fwd_addrs_parse(zone_name, zone_addr);
+            if (fwd_addrs_parse(zone_name, zone_addr, &fwd_zones_addrs[zone_idx]) < 0) {
+                free(fwd_zones_addrs);
+                return NULL;
+            }
         } else {
             log_msg(LOG_ERR, "wrong fmt %s\n", zone_info);
-            exit(-1);
+            free(fwd_zones_addrs);
+            return NULL;
         }
         zone_idx++;
         zone_info = strtok_r(NULL, "%", &tmp_ptr);
     }
 
-    return tmp_fwd_addrs;
+    *fwd_zone_num = zone_num;
+    return fwd_zones_addrs;
 }
 
-int fwd_def_addrs_reload(char *addrs) {
-    domain_fwd_addrs *new_def_fwd_addrs = NULL;
-    domain_fwd_addrs *old_def_fwd_addrs = NULL;
-
-    if (!addrs) {
-        return -1;
-    }
-
-    new_def_fwd_addrs = fwd_addrs_parse("defulat.zone", addrs);
-    if (new_def_fwd_addrs) {
-        pthread_rwlock_wrlock(&__fwd_lock);
-        old_def_fwd_addrs = g_fwd_addrs_ctrl.default_addrs;
-        g_fwd_addrs_ctrl.default_addrs = new_def_fwd_addrs;
-        pthread_rwlock_unlock(&__fwd_lock);
-    }
-
-    if (old_def_fwd_addrs) {
-        free(old_def_fwd_addrs);
-    }
-    return 0;
-}
-
-int fwd_zones_addrs_reload(char *addrs) {
-    int i;
-    int new_zone_num = 0;
-    int old_zone_num = 0;
-    domain_fwd_addrs **new_fwd_addrs = NULL;
-    domain_fwd_addrs **old_fwd_addrs = NULL;
-
-    if (!addrs) {
-        return -1;
-    }
-
-    new_fwd_addrs = fwd_zones_addrs_parse(addrs, &new_zone_num);
-    pthread_rwlock_wrlock(&__fwd_lock);
-    old_fwd_addrs = g_fwd_addrs_ctrl.zones_addrs;
-    old_zone_num = g_fwd_addrs_ctrl.zones_addrs_num;
-
-    g_fwd_addrs_ctrl.zones_addrs = new_fwd_addrs;
-    g_fwd_addrs_ctrl.zones_addrs_num = new_zone_num;
-    pthread_rwlock_unlock(&__fwd_lock);
-
-    if (old_fwd_addrs) {
-        for (i = 0; i < old_zone_num; ++i) {
-            free(old_fwd_addrs[i]);
-        }
-        free(old_fwd_addrs);
-    }
-    return 0;
-}
-
-int fwd_timeout_reload(int timeout) {
-    pthread_rwlock_wrlock(&__fwd_lock);
-    g_fwd_addrs_ctrl.timeout = timeout;
-    pthread_rwlock_unlock(&__fwd_lock);
-    return 0;
-}
-
-static int fwd_mode_parse(char *mode) {
-    log_msg(LOG_INFO, "fwd_mode_parse mode: %s.\n", mode);
-    if (strcmp(mode, "disable") == 0) {
-        return FWD_MODE_DISABLE;
-    } else if (strcmp(mode, "direct") == 0) {
-        return FWD_MODE_DIRECT;
-    } else if (strcmp(mode, "cache") == 0) {
-        return FWD_MODE_CACHE;
+int fwd_mode_parse(const char *entry) {
+    printf("fwd_mode_parse mode: %s.\n", entry);
+    if (strcasecmp(entry, "disable") == 0) {
+        return FWD_MODE_TYPE_DISABLE;
+    } else if (strcasecmp(entry, "direct") == 0) {
+        return FWD_MODE_TYPE_DIRECT;
+    } else if (strcasecmp(entry, "cache") == 0) {
+        return FWD_MODE_TYPE_CACHE;
     } else {
-        return FWD_MODE_CACHE;
-    }
-}
-
-int fwd_mode_reload(char *mode) {
-    if (!mode) {
         return -1;
     }
-
-    int new_fwd_mode = fwd_mode_parse(mode);
-    pthread_rwlock_wrlock(&__fwd_lock);
-    g_fwd_addrs_ctrl.mode = new_fwd_mode;
-    pthread_rwlock_unlock(&__fwd_lock);
-
-    return 0;
 }
 
-static domain_fwd_addrs *fwd_addrs_clone(domain_fwd_addrs *src) {
-    domain_fwd_addrs *dst = xalloc_array_zero(1, sizeof(domain_fwd_addrs));
-    strcpy(dst->domain_name, src->domain_name);
-    dst->servers_len = src->servers_len;
-    memcpy(&dst->server_addrs, &src->server_addrs, sizeof(src->server_addrs));
-
-    return dst;
-}
-
-static void fwd_addrs_ctrl_clone(domain_fwd_addrs_ctrl *dst, domain_fwd_addrs_ctrl *src) {
-    int i;
-
-    dst->mode = src->mode;
-    dst->timeout = src->timeout;
-    dst->default_addrs = fwd_addrs_clone(src->default_addrs);
-    dst->zones_addrs_num = src->zones_addrs_num;
-    dst->zones_addrs = xalloc_array_zero(src->zones_addrs_num, sizeof(domain_fwd_addrs *));
-    for (i = 0; i < src->zones_addrs_num; ++i) {
-        dst->zones_addrs[i] = fwd_addrs_clone(src->zones_addrs[i]);
-    }
-}
-
-static void fwd_addrs_ctrl_free(domain_fwd_addrs_ctrl *ctrl) {
-    int i;
-
-    free(ctrl->default_addrs);
-    for (i = 0; i < ctrl->zones_addrs_num; ++i) {
-        free(ctrl->zones_addrs[i]);
-    }
-    free(ctrl->zones_addrs);
-}
-
-int fwd_addrs_reload_proc(unsigned cid) {
-    pthread_rwlock_rdlock(&__fwd_lock);
-    fwd_addrs_ctrl_free(&fwd_addrs_ctrl[cid]);
-    fwd_addrs_ctrl_clone(&fwd_addrs_ctrl[cid], &g_fwd_addrs_ctrl);
-    pthread_rwlock_unlock(&__fwd_lock);
-    return 0;
-}
-
-domain_fwd_addrs *fwd_addrs_find(char *domain_name, domain_fwd_addrs_ctrl *ctrl) {
+domain_fwd_addrs *fwd_addrs_find(char *domain_name, domain_fwd_ctrl *ctrl) {
     int i = 0;
     for (; i < ctrl->zones_addrs_num; ++i) {
-        int zone_len = strlen(ctrl->zones_addrs[i]->domain_name);
+        int zone_len = strlen(ctrl->zones_addrs[i].domain_name);
         int domain_len = strlen(domain_name);
-        if ((domain_len >= zone_len) &&
-            strncmp(domain_name + domain_len - zone_len, ctrl->zones_addrs[i]->domain_name, strlen(ctrl->zones_addrs[i]->domain_name)) == 0) {
-            return ctrl->zones_addrs[i];
+        if ((domain_len >= zone_len) && strncmp(domain_name + domain_len - zone_len, ctrl->zones_addrs[i].domain_name, strlen(ctrl->zones_addrs[i].domain_name)) == 0) {
+            return &ctrl->zones_addrs[i];
         }
     }
     return ctrl->default_addrs;
+}
+
+static int fwd_ctrl_load(domain_fwd_ctrl *ctrl, int mode, int timeout, char *def_addrs, char *zone_addrs) {
+    ctrl->mode = mode;
+    ctrl->timeout = timeout;
+
+    if (ctrl->default_addrs) {
+        free(ctrl->default_addrs);
+    }
+    ctrl->default_addrs = fwd_def_addrs_parse(def_addrs);
+    if (ctrl->default_addrs == NULL) {
+        return -1;
+    }
+
+    if (ctrl->zones_addrs) {
+        free(ctrl->zones_addrs);
+        ctrl->zones_addrs_num = 0;
+    }
+    ctrl->zones_addrs = fwd_zones_addrs_parse(zone_addrs, &ctrl->zones_addrs_num);
+
+    return 0;
+}
+
+int fwd_ctrl_master_reload(int mode, int timeout, char *def_addrs, char *zone_addrs) {
+    pthread_rwlock_wrlock(&__fwd_lock);
+    int ret = fwd_ctrl_load(&g_fwd_ctrl, mode, timeout, def_addrs, zone_addrs);
+    pthread_rwlock_unlock(&__fwd_lock);
+    return ret;
+}
+
+int fwd_ctrl_slave_reload(int mode, int timeout, char *def_addrs, char *zone_addrs, unsigned slave_lcore) {
+    return fwd_ctrl_load(&fwd_ctrl[slave_lcore], mode, timeout, def_addrs, zone_addrs);
 }
 
 int fwd_server_init(void) {
     int i;
     pthread_rwlockattr_t attr;
 
+    uint16_t thread_num = g_dns_cfg->comm.fwd_threads;
+    int mode = g_dns_cfg->comm.fwd_mode;
+    uint16_t timeout = g_dns_cfg->comm.fwd_timeout;
+    char *def_addrs = g_dns_cfg->comm.fwd_def_addrs;
+    char *zones_addrs = g_dns_cfg->comm.fwd_zones_addrs;
+
     (void)pthread_rwlockattr_init(&attr);
     (void)pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
     (void)pthread_rwlock_init(&__fwd_lock, &attr);
 
-    g_fwd_addrs_ctrl.mode = fwd_mode_parse(g_dns_cfg->comm.fwd_mode);
-    g_fwd_addrs_ctrl.timeout = g_dns_cfg->comm.fwd_timeout;
-    g_fwd_addrs_ctrl.default_addrs = fwd_addrs_parse("defulat.zone", g_dns_cfg->comm.fwd_def_addrs);
-    g_fwd_addrs_ctrl.zones_addrs = fwd_zones_addrs_parse(g_dns_cfg->comm.fwd_addrs, &g_fwd_addrs_ctrl.zones_addrs_num);
+    fwd_ctrl_load(&g_fwd_ctrl, mode, timeout, def_addrs, zones_addrs);
     for (i = 0; i < MAX_CORES; ++i) {
-        fwd_addrs_ctrl_clone(&fwd_addrs_ctrl[i], &g_fwd_addrs_ctrl);
+        fwd_ctrl_load(&fwd_ctrl[i], mode, timeout, def_addrs, zones_addrs);
     }
 
     rte_atomic64_init(&dns_fwd_rcv);
@@ -1159,7 +1098,7 @@ int fwd_server_init(void) {
     }
 
     intptr_t tnum;
-    for (tnum = 0; tnum < g_dns_cfg->comm.fwd_threads; ++tnum) {
+    for (tnum = 0; tnum < thread_num; ++tnum) {
         pthread_t *thread_id = (pthread_t *)xalloc(sizeof(pthread_t));
         pthread_create(thread_id, NULL, thread_fwd_process, (void *)tnum);
 

@@ -26,7 +26,6 @@
 #define IPSECKEY_DNAME          3
 
 #define LINEBUFSZ 1024
-#define ZONES_STR_LEN (1024)
 
 struct lexdata {
     size_t   len;		/* holds the label length */
@@ -49,7 +48,4 @@ uint16_t *zparser_conv_aaaa(const char *text);
 
 
 uint16_t *alloc_rdata_init( const void *data, size_t size);
-
-void domain_store_zones_check_delete(struct kdns* kdns, char* zones);
-void domain_store_zones_check_create(struct kdns* kdns, char *zones);
 #endif /* _ZONEC_H_ */

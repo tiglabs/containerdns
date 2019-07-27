@@ -3,11 +3,14 @@
 
 #include "netdev.h"
 
+#define CTRL_MSG_FLAG_MASTER_SYNC_SLAVE (0x1 << 0)
+
 typedef enum {
-    CTRL_MSG_TYPE_DOMAIN,
-    CTRL_MSG_TYPE_VIEW,
-    CTRL_MSG_TYPE_TO_KNI,
-    CTRL_MSG_TYPE_TO_TX,
+    CTRL_MSG_TYPE_UPDATE_DOMAIN,
+    CTRL_MSG_TYPE_UPDATE_VIEW,
+    CTRL_MSG_TYPE_MBUF_TO_KNI,
+    CTRL_MSG_TYPE_MBUF_TO_TX,
+    CTRL_MSG_TYPE_UPDATE_CONFIG,
     CTRL_MSG_TYPE_MAX,
 } ctrl_msg_type;
 
@@ -24,6 +27,12 @@ typedef struct {
     uint16_t mbufs_cnts;
     struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
 } ctrl_mbufs_msg;
+
+typedef int (*ctrl_msg_master_cb)(ctrl_msg *msg);
+
+typedef int (*ctrl_msg_slave_cb)(ctrl_msg *msg, unsigned slave_lcore);
+
+int ctrl_msg_reg(ctrl_msg_type type, int ctrl_flag, ctrl_msg_master_cb master_cb, ctrl_msg_slave_cb slave_cb);
 
 int ctrl_msg_slave_ingress(void **msg, uint16_t msg_cnt, unsigned slave_lcore);
 

@@ -8,16 +8,32 @@
 #include <arpa/inet.h>
 #include <rte_rwlock.h>
 
+#include "dns.h"
 #include "netdev.h"
 
-#define FWD_MAX_DOMAIN_NAME_LEN     (255)
 #define FWD_MAX_ADDRS               (16)
 
-#define FWD_MODE_DISABLE            (0x0)
-#define FWD_MODE_DIRECT             (0x1)
-#define FWD_MODE_CACHE              (0x2)
-
 extern pthread_rwlock_t __fwd_lock;
+
+typedef enum {
+    FWD_MODE_TYPE_DISABLE,
+    FWD_MODE_TYPE_DIRECT,
+    FWD_MODE_TYPE_CACHE,
+    FWD_MODE_TYPE_MAX,
+} fwd_mode_type;
+
+static const char *fwd_mode_str_array[FWD_MODE_TYPE_MAX] = {
+    "disable",
+    "direct",
+    "cache"
+};
+
+static inline const char *fwd_mode_type_str(fwd_mode_type type) {
+    if (unlikely(type < 0 || type >= FWD_MODE_TYPE_MAX)) {
+        return "illegal type";
+    }
+    return fwd_mode_str_array[type];
+}
 
 typedef struct {
     struct sockaddr addr;
@@ -25,7 +41,7 @@ typedef struct {
 } dns_addr_t;
 
 typedef struct {
-    char domain_name[FWD_MAX_DOMAIN_NAME_LEN];
+    char domain_name[MAXDOMAINLEN];
     int servers_len;
     dns_addr_t server_addrs[FWD_MAX_ADDRS];
 } domain_fwd_addrs;
@@ -35,20 +51,16 @@ typedef struct {
     int timeout;    //second
     domain_fwd_addrs *default_addrs;
     int zones_addrs_num;
-    domain_fwd_addrs **zones_addrs;
-} domain_fwd_addrs_ctrl;
+    domain_fwd_addrs *zones_addrs;
+} domain_fwd_ctrl;
 
-domain_fwd_addrs *fwd_addrs_find(char *domain_name, domain_fwd_addrs_ctrl *ctrl);
+domain_fwd_addrs *fwd_addrs_find(char *domain_name, domain_fwd_ctrl *ctrl);
 
-int fwd_zones_addrs_reload(char *addrs);
+int fwd_mode_parse(const char *entry);
 
-int fwd_def_addrs_reload(char *addrs);
+int fwd_ctrl_master_reload(int mode, int timeout, char *def_addrs, char *zone_addrs);
 
-int fwd_timeout_reload(int timeout);
-
-int fwd_mode_reload(char *mode);
-
-int fwd_addrs_reload_proc(unsigned cid);
+int fwd_ctrl_slave_reload(int mode, int timeout, char *def_addrs, char *zone_addrs, unsigned slave_lcore);
 
 void fwd_statsdata_get(struct netif_queue_stats *sta);
 

@@ -32,7 +32,7 @@ int web_endpoint_add(const char * method, const char * url, struct web_instance 
           void* (* callback_function)(struct connection_info_struct *con_info,char* url, int * len_response)) ;
 
 struct web_instance * webserver_new(unsigned int port);
-int webserver_run(struct web_instance * instance);
+int webserver_run(struct web_instance *instance, int ssl_enable, char *key_pem_file, char *cert_pem_file);
 void webserver_stop(struct web_instance * instance);
 
 
