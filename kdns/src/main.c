@@ -29,8 +29,9 @@
 #define DEFAULT_CONF_FILEPATH "/etc/kdns/kdns.cfg"
 #define PIDFILE "/var/run/kdns.pid"
 
-static char *dns_cfgfile;
-static char *dns_procname;
+int dns_reload;
+char *dns_cfgfile;
+char *dns_procname;
 
 static char *parse_progname(char *arg) {
     char *p;
@@ -74,7 +75,7 @@ static void signal_handler(int sig) {
         break;
     case SIGHUP:
         log_msg(LOG_INFO, "Program hanged up @@@.");
-        dns_config_reload(dns_cfgfile, dns_procname);
+        dns_reload = 1;
         return;
     case SIGPIPE:
         log_msg(LOG_ERR, "SIGPIPE @@@.");
