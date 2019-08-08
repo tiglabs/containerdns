@@ -32,6 +32,10 @@
 #define PREFETCH_OFFSET     (3)
 #define UDP_PORT_53         (0x3500)    // port 53
 
+extern int dns_reload;
+extern char *dns_cfgfile;
+extern char *dns_procname;
+
 static int tx_msg_slave_process(ctrl_msg *msg, unsigned slave_lcore) {
     ctrl_mbufs_msg *mmsg = (ctrl_mbufs_msg *)msg;
 
@@ -313,6 +317,11 @@ int process_master(__attribute__((unused)) void *arg) {
     reset_master_affinity();
     log_msg(LOG_INFO, "Starting master on core %u\n", lcore_id);
     while (1) {
+        if (dns_reload) {
+            dns_reload = 0;
+            dns_config_reload(dns_cfgfile, dns_procname);
+        }
+
         nb_ctrl = ctrl_msg_master_process();
 
         nb_kni = kni_ingress(mbufs, NETIF_MAX_PKT_BURST);
