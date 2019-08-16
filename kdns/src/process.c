@@ -319,6 +319,7 @@ int process_master(__attribute__((unused)) void *arg) {
     while (1) {
         if (dns_reload) {
             dns_reload = 0;
+            log_msg(LOG_INFO, "Program hanged up @@@.");
             dns_config_reload(dns_cfgfile, dns_procname);
         }
 
