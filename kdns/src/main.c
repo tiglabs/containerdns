@@ -65,34 +65,35 @@ static void parse_args(int argc, char *argv[]) {
 static void signal_handler(int sig) {
     switch (sig) {
     case SIGQUIT:
-        log_msg(LOG_ERR, "QUIT signal @@@.");
+        //log_msg(LOG_ERR, "QUIT signal @@@.");
         break;
     case SIGTERM:
-        log_msg(LOG_ERR, "TERM signal @@@.");
+        //log_msg(LOG_ERR, "TERM signal @@@.");
         break;
     case SIGINT:
-        log_msg(LOG_ERR, "INT signal @@@.");
+        //log_msg(LOG_ERR, "INT signal @@@.");
         break;
     case SIGHUP:
-        log_msg(LOG_INFO, "Program hanged up @@@.");
+        //log_msg(LOG_INFO, "Program hanged up @@@.");
         dns_reload = 1;
         return;
     case SIGPIPE:
-        log_msg(LOG_ERR, "SIGPIPE @@@.");
+        //log_msg(LOG_ERR, "SIGPIPE @@@.");
         break;
     case SIGCHLD:
-        log_msg(LOG_ERR, "SIGCHLD @@@.");
+        //log_msg(LOG_ERR, "SIGCHLD @@@.");
         break;
     case SIGUSR1:
-        log_msg(LOG_ERR, "SIGUSR1 @@@.");
+        //log_msg(LOG_ERR, "SIGUSR1 @@@.");
         break;
     case SIGUSR2:
+        //log_msg(LOG_ERR, "SIGUSR2 @@@.");
         break;
     case SIGURG:
-        log_msg(LOG_ERR, "SIGURG @@@.");
+        //log_msg(LOG_ERR, "SIGURG @@@.");
         break;
     default:
-        log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
+        //log_msg(LOG_ERR, "Unknown signal(%d) ended program!", sig);
         break;
     }
     rte_pdump_uninit();
